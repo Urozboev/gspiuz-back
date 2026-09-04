@@ -1,0 +1,26 @@
+﻿{
+    "version":  "0.0.1",
+    "configurations":  [
+                           {
+                               "name":  "gspi-front",
+                               "runtimeExecutable":  "npm",
+                               "runtimeArgs":  [
+                                                   "--prefix",
+                                                   "D:/Projects/gspi-front",
+                                                   "run",
+                                                   "dev"
+                                               ],
+                               "port":  3000
+                           },
+                           {
+                               "name":  "gspi-backend",
+                               "runtimeExecutable":  "C:\\php84\\php.exe",
+                               "runtimeArgs":  [
+                                                   "artisan",
+                                                   "serve",
+                                                   "--port=8000"
+                                               ],
+                               "port":  8000
+                           }
+                       ]
+}

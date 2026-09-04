@@ -1,0 +1,35 @@
+# Environment
+.env
+vendor
+
+# Upload & storage folders
+public/appapkada/storage/uploads/
+uploads/
+uploads/**
+upload/
+images/
+images/**
+
+# Laravel (agar bo‘lsa)
+storage/*.key
+storage/logs/
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/views/
+
+# Node (agar bo‘lsa)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Bazaga to'g'ridan-to'g'ri kirish beradigan begona skriptlar va dumplar.
+# Bular hech qachon serverga chiqmasligi kerak.
+/public/adminer*.php
+/*.sql
+
+# Ish jarayonidagi zaxira nusxalar — bazadan olingan, repoga kerak emas.
+/storage/app/*.json
+/storage/app/public/
+/public/uploads*/
