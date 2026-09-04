@@ -91,7 +91,7 @@ TELEGRAM_CHAT_ID=
 CORS_ALLOWED_ORIGINS=https://gspi.uz,https://www.gspi.uz
 
 # API marshrutlari prefiksi — MAXFIY. Uzun tasodifiy satr.
-# Frontenddagi qiymat bilan bir xil boʻlishi shart.
+# Frontenddagi `BACKEND_API_PREFIX` bilan bir xil boʻlishi shart.
 API_PREFIX=<uzun-tasodifiy-satr>
 ```
 
@@ -351,4 +351,9 @@ API prefiksi `.env` dagi `API_PREFIX` dan olinadi (kodda yozilmagan — repozito
 php -r "echo bin2hex(random_bytes(24)), PHP_EOL;"
 ```
 
-Qiymat frontenddagi mos sozlama bilan **bir xil** boʻlishi shart, aks holda sayt backendni topolmaydi.
+Xuddi shu qiymat frontendda ham turishi shart — ikkalasi **bir xil** boʻlmasa, Next.js proksisi backendni topolmaydi va sayt 404 ga uradi:
+
+| Ilova | Fayl | Sozlama |
+|---|---|---|
+| Backend (bu loyiha) | `.env` | `API_PREFIX=<maxfiy>` |
+| Frontend (`gspi-front`) | `.env.local` | `BACKEND_API_PREFIX=<xuddi shu maxfiy>` |
