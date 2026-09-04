@@ -32,12 +32,13 @@ Frontend qadamlari alohida hujjatda: `gspi-front/DEPLOY.md`.
 | # | Qadam | Qayerda |
 |---|---|---|
 | 1 | Backendni chiqarish (2–6-boʻlimlar) | Institut serveri |
-| 2 | `admin.gspi.uz` DNS yozuvi va sertifikat (7-boʻlim) | ahost DNS paneli |
-| 3 | API tashqaridan ishlayotganini tasdiqlash | Istalgan kompyuter |
-| 4 | Frontendni **serverning oʻzida** build qilish | ahost |
-| 5 | Ahost IP'sini aniqlab, nginx `allow` ga yozish | Institut serveri |
+| 2 | Kerio Control'da 80/443 portlarini oʻtkazish (7-boʻlim) | Institut tarmoq admini |
+| 3 | `admin.gspi.uz` sertifikati (DNS allaqachon tayyor) | Institut serveri |
+| 4 | API tashqaridan ishlayotganini tasdiqlash | Istalgan kompyuter |
+| 5 | Frontendni **serverning oʻzida** build qilish | ahost |
+| 6 | Ahost IP'sini aniqlab, nginx `allow` ga yozish | Institut serveri |
 
-Uchinchi qadam — oʻtish nuqtasi. U bajarilmaguncha frontendni build qilmang:
+Toʻrtinchi qadam — oʻtish nuqtasi. U bajarilmaguncha frontendni build qilmang:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" \
@@ -46,7 +47,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 
 `200` kelsa keyingi qadamga oʻting. Boshqa har qanday javob — avval 7-boʻlimni tugating.
 
-Beshinchi qadam ataylab oxirida: `allow` qoidasi qoʻyilgach faqat ahost kira oladi, ya'ni undan oldin siz oʻzingiz ham tekshira olmay qolasiz.
+Oxirgi qadam ataylab eng oxirida: `allow` qoidasi qoʻyilgach faqat ahost kira oladi, ya'ni undan oldin siz oʻzingiz ham tekshira olmay qolasiz.
 
 **Frontendni oldinroq chiqarish mumkin**, lekin unda sayt boʻsh koʻrinadi va subdomen tayyor boʻlgach **qayta build** qilish shart — aks holda u eski manzilga murojaat qilaveradi.
 
@@ -233,10 +234,40 @@ nginx -t && systemctl reload nginx
 
 ### Domen
 
-Backend serveriga subdomen kerak — masalan `admin.gspi.uz`. Uni ahost DNS panelidan institut serverining IP manziliga (`A` yozuvi) yoʻnaltiring.
+Backend serveriga subdomen kerak — `admin.gspi.uz`. **DNS yozuvi allaqachon yaratilgan** va tarqalgan: `admin.gspi.uz` → `198.163.204.233` (A yozuvi, TTL 300).
 
 Subdomensiz ham ishlaydi (IP + port), lekin unda **Let's Encrypt sertifikat bera olmaydi**, HTTPS esa bu tuzilmada majburiy. Shuning uchun subdomen amalda shart.
 
+### Xavfsizlik devori — birinchi hal qilinadigan masala
+
+`admin.gspi.uz` institut serverining tashqi manziliga (`198.163.204.233`) yoʻnaltirilgan, **lekin u yerda toʻgʻridan-toʻgʻri veb-server turmaydi**. 80 va 443 portlarga **Kerio Control** xavfsizlik devori javob beradi va tashqi soʻrovlarni rad etadi:
+
+```
+$ curl -I http://admin.gspi.uz/
+HTTP/1.0 403 Forbidden
+… This message was created by Kerio Control Proxy
+```
+
+443-portdagi sertifikat ham Kerio'niki — oʻzi imzolagan, nomi UUID koʻrinishida va **muddati 2026-yil 20-martda tugagan**.
+
+SSH (52200) esa oʻtkaziladi, ya'ni ichkarida Linux server bor va unga faqat shu port ochilgan.
+
+**Nima qilish kerak.** Institut tarmoq administratoriga murojaat qiling va Kerio Control'da ikkita port oʻtkazish qoidasi soʻrang:
+
+| Tashqi port | Ichki server | Nima uchun |
+|---|---|---|
+| 80 (TCP) | Laravel serverining ichki IP'si, 80 | Let's Encrypt tekshiruvi shu portdan oʻtadi |
+| 443 (TCP) | Laravel serverining ichki IP'si, 443 | Saytning asosiy trafigi |
+
+80-port **majburiy**: usiz `certbot` domenni tasdiqlay olmaydi va sertifikat berilmaydi.
+
+Bu qoidalar qoʻyilmaguncha keyingi qadamlar bajarilmaydi — na sertifikat olinadi, na ahost API'ga ulanadi. Tekshirish:
+
+```bash
+curl -sI http://admin.gspi.uz/ | head -1
+```
+
+`Kerio` yoki `403` oʻrniga nginx javobi (`404`, `200` yoki `301`) kelsa — oʻtkazish ishlayapti.
 ### Sertifikat
 
 ```bash
