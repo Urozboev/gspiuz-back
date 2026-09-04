@@ -25,6 +25,31 @@ Admin panel ham backend serverida turadi — unga alohida subdomen orqali kirila
 
 Frontend qadamlari alohida hujjatda: `gspi-front/DEPLOY.md`.
 
+## Qaysi tartibda chiqariladi
+
+**Tartib muhim.** Frontend build qilinganda backend manzili (`BACKEND_URL`) `.next/` ichiga **muhrlanadi** — keyin uni oʻzgartirish uchun qayta build qilish kerak boʻladi. Shuning uchun backend va uning subdomeni frontenddan **oldin** tayyor boʻlishi kerak.
+
+| # | Qadam | Qayerda |
+|---|---|---|
+| 1 | Backendni chiqarish (2–6-boʻlimlar) | Institut serveri |
+| 2 | `admin.gspi.uz` DNS yozuvi va sertifikat (7-boʻlim) | ahost DNS paneli |
+| 3 | API tashqaridan ishlayotganini tasdiqlash | Istalgan kompyuter |
+| 4 | Frontendni **serverning oʻzida** build qilish | ahost |
+| 5 | Ahost IP'sini aniqlab, nginx `allow` ga yozish | Institut serveri |
+
+Uchinchi qadam — oʻtish nuqtasi. U bajarilmaguncha frontendni build qilmang:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  https://admin.gspi.uz/<API_PREFIKSI>/siteinfo
+```
+
+`200` kelsa keyingi qadamga oʻting. Boshqa har qanday javob — avval 7-boʻlimni tugating.
+
+Beshinchi qadam ataylab oxirida: `allow` qoidasi qoʻyilgach faqat ahost kira oladi, ya'ni undan oldin siz oʻzingiz ham tekshira olmay qolasiz.
+
+**Frontendni oldinroq chiqarish mumkin**, lekin unda sayt boʻsh koʻrinadi va subdomen tayyor boʻlgach **qayta build** qilish shart — aks holda u eski manzilga murojaat qilaveradi.
+
 ---
 
 ## 1. Server talablari
