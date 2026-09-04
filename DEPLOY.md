@@ -234,7 +234,10 @@ location ^~ /<API_PREFIKSI>/ {
 }
 ```
 
-Ahost IP manzilini hostingdan soʻrang. Agar u oʻzgarib turadigan boʻlsa, cheklashning oʻrniga API kalitini qoʻshish kerak boʻladi — bu holda ayting, alohida qilamiz.
+Ahost IP manzilini hostingdan soʻrang. Ahost shared hostingda — u yerda chiquvchi IP odatda barqaror, lekin **kafolat yoʻq**: hosting infratuzilmani oʻzgartirsa IP ham oʻzgaradi va sayt toʻsatdan boʻsh maʼlumot koʻrsata boshlaydi. Bu holat 11-boʻlimda tasvirlangan — birinchi tekshiriladigan narsa aynan shu.
+
+Agar IP tez-tez oʻzgarsa, cheklashning oʻrniga API kaliti kerak boʻladi; ayting, alohida qilamiz.
+
 
 Admin panel esa xodimlar uchun ochiq qoladi (`/admin/`, `/login`), uni IP bilan cheklamang.
 
@@ -369,18 +372,47 @@ Kod zaxiralanmasa ham bo'ladi — u repozitoriyda. Yuklangan fayllar esa faqat s
 
 ## 11. Tez-tez uchraydigan nosozliklar
 
-**"Reading Exif data is not supported"** — `exif` kengaytmasi yo'q. Kod buni endi o'zi hal qiladi, lekin agar eski versiya ishlab tursa, `php artisan config:clear` qilib ko'ring yoki kengaytmani o'rnating.
+Quyidagi ikkitasi eng koʻp vaqt yeydi, chunki ikkalasida ham **sozlama toʻgʻri koʻrinadi, lekin ishlamaydi**. Nimadir tushunarsiz buzilgan boʻlsa, avval shularni tekshiring.
 
-**Rasm yuklanadi, lekin ko'rinmaydi** — `php artisan storage:link` bajarilmagan yoki `public/upload` ga yozish huquqi yo'q.
+### ⚠️ Sayt toʻsatdan boʻsh maʼlumot koʻrsatyapti
 
-**`.env` o'zgartirdim, lekin hech narsa o'zgarmadi** — `config:cache` keshni muhrlagan. `php artisan config:clear && php artisan config:cache`.
+Sahifalar ochiladi, lekin yangiliklar, xodimlar va boshqa roʻyxatlar boʻsh. Xatolik xabari yoʻq.
 
-**Admin panel 419 xatosi beradi** — sessiya sozlamasi. `SESSION_DRIVER=file` bo'lsa `storage/framework/sessions` ga yozish huquqini tekshiring.
+**Birinchi navbatda ahost serverining IP manzili oʻzgarmaganini tekshiring.** API faqat oʻsha IP'dan ochiq (7-boʻlim); hosting infratuzilmani oʻzgartirsa, IP ham oʻzgaradi va backend ahostga `403` qaytara boshlaydi. Frontend buni "maʼlumot yoʻq" deb koʻrsatadi — ya'ni sabab hech qayerda yozilmaydi.
 
-**Sayt "500" beradi, sabab ko'rinmaydi** — bu to'g'ri holat (`APP_DEBUG=false`). Sababi `storage/logs/laravel.log` da.
+Tekshirish — backend serverida:
+
+```bash
+grep -E "403" /var/log/nginx/gspi-access.log | tail -20
+```
+
+Agar `403` lar bir xil notanish IP'dan kelayotgan boʻlsa, oʻsha ahostning yangi manzili. Nginx konfiguratsiyasidagi `allow` ni yangilang va `systemctl reload nginx` qiling.
+
+Ahost shared hostingda, u yerda chiquvchi IP odatda barqaror — lekin kafolat yoʻq. Agar bu tez-tez takrorlansa, IP cheklovi oʻrniga API kaliti kerak boʻladi; ayting, qoʻshamiz.
+
+### ⚠️ `.env` ni oʻzgartirdim, lekin hech narsa oʻzgarmadi
+
+`config:cache` qiymatlarni fayl ichiga muhrlagan. `.env` ni tahrirlash oʻz-oʻzidan yetarli emas — keshni qayta qurish shart:
+
+```bash
+php artisan config:clear && php artisan config:cache
+```
+
+Bu **har safar** `.env` oʻzgarganda kerak, jumladan `API_PREFIX` yoki `CORS_ALLOWED_ORIGINS` ni tuzatganda.
+
+> Frontendda ham xuddi shunday tuzoq bor: `BACKEND_URL` build paytida `.next/` ichiga yoziladi. Noutbukda dev qiymatlari bilan qurilgan build serverga yuklansa, sayt `localhost` ga murojaat qiladi. Buildni serverning oʻzida qiling — batafsil `gspi-front/DEPLOY.md` da.
+
+### Qolganlari
+
+**"Reading Exif data is not supported"** — `exif` kengaytmasi yoʻq. Kod buni endi oʻzi hal qiladi, lekin agar eski versiya ishlab tursa, `php artisan config:clear` qilib koʻring yoki kengaytmani oʻrnating.
+
+**Rasm yuklanadi, lekin koʻrinmaydi** — `php artisan storage:link` bajarilmagan yoki `public/upload` ga yozish huquqi yoʻq.
+
+**Admin panel 419 xatosi beradi** — sessiya sozlamasi. `SESSION_DRIVER=file` boʻlsa `storage/framework/sessions` ga yozish huquqini tekshiring.
+
+**Sayt "500" beradi, sabab koʻrinmaydi** — bu toʻgʻri holat (`APP_DEBUG=false`). Sababi `storage/logs/laravel.log` da.
 
 ---
-
 ## 12. Tekshirish
 
 Backend serverida, chiqargandan keyin:
