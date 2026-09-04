@@ -203,7 +203,7 @@ class GspiImport extends Command
             return self::SUCCESS;
         }
 
-        $category = $what === 'announcements' ? $this->announcementCategory() : null;
+        $category = $this->categoryFor($what);
 
         $bar = $this->output->createProgressBar(count($new));
 
@@ -232,12 +232,26 @@ class GspiImport extends Command
         return self::SUCCESS;
     }
 
-    private function announcementCategory(): PostsCategory
+    /**
+     * Yozuv qaysi turkumga tushishi.
+     *
+     * Frontend `/news?category=<slug>` orqali filtrlaydi, shuning uchun
+     * turkum biriktirilmasa eʼlonlar eʼlonlar sahifasida koʻrinmaydi.
+     */
+    private function categoryFor(string $what): ?PostsCategory
     {
-        return PostsCategory::firstOrCreate(
-            ['slug' => 'announcements'],
-            ['title' => ['uz' => 'Eʼlonlar', 'ru' => 'Объявления', 'en' => 'Announcements']]
-        );
+        $known = [
+            'news' => ['yangiliklar', ['uz' => 'Yangiliklar', 'ru' => 'Новости', 'en' => 'News']],
+            'announcements' => ['elonlar', ['uz' => 'Eʼlonlar', 'ru' => 'Объявления', 'en' => 'Announcements']],
+        ];
+
+        if (!isset($known[$what])) {
+            return null;
+        }
+
+        [$slug, $title] = $known[$what];
+
+        return PostsCategory::firstOrCreate(['slug' => $slug], ['title' => $title]);
     }
 
     private function importEmployees(array $rows): int
