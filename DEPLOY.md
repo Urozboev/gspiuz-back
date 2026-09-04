@@ -1,13 +1,27 @@
 # Serverga chiqarish — backend (Laravel)
 
-GSPI sayti bitta serverda ikkita ilovadan iborat:
+GSPI sayti **ikkita alohida serverda** ishlaydi:
 
 | Ilova | Nima | Qayerda |
 |---|---|---|
-| **Backend** (bu loyiha) | API, admin panel, fayllar | php-fpm, `public/` katalogi |
-| **Frontend** (`gspi-front`) | Saytning o'zi | `127.0.0.1:3000`, Next.js |
+| **Frontend** (`gspi-front`) | Saytning oʻzi, `gspi.uz` | ahost.uz hostingi, Next.js (Node.js bor) |
+| **Backend** (bu loyiha) | API, admin panel, yuklangan fayllar | Institut serveri, nginx + php-fpm |
 
-Nginx ikkalasini bitta domenga birlashtiradi. Frontend Laravelga **localhost orqali** murojaat qiladi, shuning uchun API tashqi internetga umuman ochilmaydi.
+Brauzer faqat frontend bilan gaplashadi. Next.js esa backendga **oʻz serveridan** murojaat qiladi — ya'ni maxfiy API prefiksi brauzerga umuman koʻrinmaydi.
+
+```
+brauzer  ──HTTPS──▶  gspi.uz (ahost, Next.js)
+                          │
+                          └──HTTPS──▶  institut serveri (Laravel API)
+```
+
+Bu ikki serverli tuzilma uchta narsani majburiy qiladi:
+
+1. **Backend internetdan yetib boradigan boʻlishi kerak** — ahost undan maʼlumot oladi. Demak API endi "ichki" emas.
+2. **Backendda HTTPS shart.** Soʻrovlar ochiq internet orqali oʻtadi; sertifikatsiz maxfiy prefiks ham, kontent ham yoʻlda koʻrinadi.
+3. **Kirishni ahost IP manzili bilan cheklash kerak** (7-boʻlim). Prefiksning maxfiyligi yagona himoya boʻlib qolmasin.
+
+Admin panel ham backend serverida turadi — unga alohida subdomen orqali kiriladi (masalan `admin.gspi.uz`), `gspi.uz` orqali emas.
 
 Frontend qadamlari alohida hujjatda: `gspi-front/DEPLOY.md`.
 
@@ -180,34 +194,71 @@ Shu sababdan kodda `env()` ishlatilmaydi — hamma sozlama `config/` orqali o'qi
 
 ---
 
-## 7. Nginx va SSL
+## 7. Nginx, SSL va kirishni cheklash
 
-Tayyor qoralama: `deploy/nginx.conf.example`. Uni ko'chiring va uchta narsani to'g'rilang: `root` yo'li, php-fpm socket nomi, sertifikat yo'llari.
+Backend alohida serverda turgani uchun nginx ikkita narsani beradi: **API** (faqat ahost uchun) va **admin panel** (xodimlar uchun).
+
+Tayyor qoralama: `deploy/nginx.conf.example`. Uni koʻchiring va toʻrtta narsani toʻgʻrilang: `server_name`, `root` yoʻli, php-fpm socket nomi, sertifikat yoʻllari.
 
 ```bash
-cp deploy/nginx.conf.example /etc/nginx/sites-available/gspi.uz
-ln -s /etc/nginx/sites-available/gspi.uz /etc/nginx/sites-enabled/
+cp deploy/nginx.conf.example /etc/nginx/sites-available/admin.gspi.uz
+ln -s /etc/nginx/sites-available/admin.gspi.uz /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
 ```
 
-Konfiguratsiya nimani qanday taqsimlashi:
+### Domen
+
+Backend serveriga subdomen kerak — masalan `admin.gspi.uz`. Uni ahost DNS panelidan institut serverining IP manziliga (`A` yozuvi) yoʻnaltiring.
+
+Subdomensiz ham ishlaydi (IP + port), lekin unda **Let's Encrypt sertifikat bera olmaydi**, HTTPS esa bu tuzilmada majburiy. Shuning uchun subdomen amalda shart.
+
+### Sertifikat
+
+```bash
+certbot --nginx -d admin.gspi.uz
+```
+
+DNS yozuvi tarqalgandan keyin bajaring, aks holda tekshiruv oʻtmaydi.
+
+### Kirishni cheklash — eng muhim qadam
+
+API endi internetdan koʻrinadi. Prefiksning maxfiyligi himoyaning bir qismi, lekin **yagonasi boʻlmasligi kerak**. API'ga faqat ahost serveri kira olsin:
+
+```nginx
+# API — faqat frontend serveri uchun.
+location ^~ /<API_PREFIKSI>/ {
+    allow <ahost-server-IP>;
+    deny  all;
+
+    try_files $uri /index.php?$query_string;
+}
+```
+
+Ahost IP manzilini hostingdan soʻrang. Agar u oʻzgarib turadigan boʻlsa, cheklashning oʻrniga API kalitini qoʻshish kerak boʻladi — bu holda ayting, alohida qilamiz.
+
+Admin panel esa xodimlar uchun ochiq qoladi (`/admin/`, `/login`), uni IP bilan cheklamang.
+
+### Nima qayerga ketadi
 
 | Manzil | Qayerga |
 |---|---|
-| `/upload/`, `/storage/`, `/assets/` | To'g'ridan-to'g'ri diskdan, 30 kun kesh |
+| `/upload/`, `/storage/`, `/assets/` | Toʻgʻridan-toʻgʻri diskdan, 30 kun kesh |
 | `/admin/`, `/login`, `/logout` | php-fpm (admin panel) |
-| Qolgan hammasi | `127.0.0.1:3000` (Next.js) |
+| `/<API_PREFIKSI>/` | php-fpm, **faqat ahost IP'sidan** |
+| `index.php` dan boshqa `.php` | `deny all` (adminer kabi begona skriptlar uchun) |
 
-**API ataylab tashqariga ochilmagan.** Frontend Laravelga localhostdan boradi, shuning uchun maxfiy prefiks internetdan umuman ko'rinmaydi.
+### Frontend tomonida
 
-Sertifikat (Let's Encrypt):
+`gspi-front/.env.local` da backend manzili shu subdomen boʻladi:
 
-```bash
-certbot --nginx -d gspi.uz -d www.gspi.uz
+```ini
+BACKEND_URL=https://admin.gspi.uz
+BACKEND_API_PREFIX=<xuddi shu maxfiy prefiks>
 ```
 
----
+`BACKEND_URL` da **`https://` boʻlishi shart** — `http://` boʻlsa soʻrovlar ochiq oʻtadi.
 
+---
 ## 8. Xavfsizlik ro'yxati
 
 ### Avval: namunaviy ma'lumotni tozalash
@@ -257,6 +308,8 @@ Ular `.gitignore` ga qo'shilgan va `deploy/nginx.conf.example` da `index.php` da
 Serverga chiqishdan oldin har birini tekshiring:
 
 - [ ] **Admin hisobi parolini tekshirish.** Migratsiya `.env` dagi `ADMIN_USERNAME` / `ADMIN_PASSWORD` ni ishlatadi; parol berilmasa tasodifiy yaratiladi va konsolga bir marta chiqariladi. Uni saqlab qo'ying yoki darhol o'zingiznikiga almashtiring.
+- [ ] **API faqat ahost IP manzilidan ochiq** (7-boʻlim). Backend endi internetdan koʻrinadi — buni tekshirmasangiz, prefiksni topgan har kim maʼlumotni oʻqiy oladi.
+- [ ] **HTTPS ishlayapti** va `BACKEND_URL` da `https://` turibdi. Soʻrovlar ochiq internet orqali oʻtadi.
 - [ ] `APP_DEBUG=false`
 - [ ] `APP_ENV=production`
 - [ ] `APP_KEY` yaratilgan va `.env` dan tashqariga chiqmagan
@@ -330,17 +383,36 @@ Kod zaxiralanmasa ham bo'ladi — u repozitoriyda. Yuklangan fayllar esa faqat s
 
 ## 12. Tekshirish
 
-Chiqargandan keyin:
+Backend serverida, chiqargandan keyin:
 
 ```bash
-# API ichkaridan javob beryaptimi
-curl -s -H "Accept-Language: uz" http://127.0.0.1:8000/<API_PREFIKSI>/menu | head -c 200
+# 1. API serverning oʻzidan javob beryaptimi (200 kutiladi)
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Accept-Language: uz" \
+  http://127.0.0.1:8000/<API_PREFIKSI>/menu
 
-# API tashqaridan YOPIQ bo'lishi kerak (404 kutiladi)
-curl -s -o /dev/null -w "%{http_code}\n" https://gspi.uz/<API_PREFIKSI>/menu
+# 2. HTTPS orqali ham ishlaydimi (200 kutiladi)
+curl -s -o /dev/null -w "%{http_code}\n" \
+  https://admin.gspi.uz/<API_PREFIKSI>/menu
 
-# Admin panel ochiladimi
-curl -s -o /dev/null -w "%{http_code}\n" https://gspi.uz/login
+# 3. Admin panel ochiladimi (200 kutiladi)
+curl -s -o /dev/null -w "%{http_code}\n" https://admin.gspi.uz/login
+
+# 4. Begona PHP skriptlar yopiqmi (403 yoki 404 kutiladi)
+curl -s -o /dev/null -w "%{http_code}\n" https://admin.gspi.uz/adminer.php
+```
+
+Ikkinchi buyruqni **boshqa kompyuterdan** ham bajaring: IP cheklash yoqilgan boʻlsa u yerdan `403` kelishi kerak. Agar `200` kelsa — cheklash ishlamayapti, 7-boʻlimga qayting.
+
+Frontend tomondan (ahost serverida):
+
+```bash
+# Frontend backendni koʻra olyaptimi
+curl -s -o /dev/null -w "%{http_code}\n" \
+  https://admin.gspi.uz/<API_PREFIKSI>/menu
+
+# Sayt ochiladimi
+curl -s -o /dev/null -w "%{http_code}\n" https://gspi.uz
 ```
 
 API prefiksi `.env` dagi `API_PREFIX` dan olinadi (kodda yozilmagan — repozitoriyga tushmasligi uchun). U maxfiy: hujjatlarga, xabarlarga yoki repozitoriyga yozmang.

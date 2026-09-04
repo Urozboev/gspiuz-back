@@ -1,27 +1,27 @@
-# GSPI sayti — nginx konfiguratsiyasi (qoralama)
+# ---------------------------------------------------------------------
+# GSPI backend — nginx namunasi
 #
-# Bitta serverda ikkita ilova ishlaydi:
-#   • Laravel (backend + admin panel) — php-fpm orqali, public/ katalogi
-#   • Next.js (frontend) — 127.0.0.1:3000 da, `npm run build && npm start`
+# Bu konfiguratsiya **backend serveri** uchun (institut serveri).
+# Frontend (Next.js) boshqa serverda — ahost.uz hostingida — turadi va
+# bu yerga tashqaridan, HTTPS orqali murojaat qiladi.
 #
-# Manzillar taqsimoti:
-#   /admin/…    → Laravel admin paneli
-#   /login      → Laravel autentifikatsiyasi
-#   /upload/…   → fayllar, to'g'ridan-to'g'ri diskdan (PHP ishlatilmaydi)
-#   /storage/…  → storage:link orqali ulangan fayllar
-#   /<API prefiksi>/… → Laravel API
-#   qolgan hammasi → Next.js
+# Shu serverda nima bor:
+#   • Laravel admin paneli  — xodimlar uchun ochiq
+#   • API                   — faqat ahost serveri uchun
+#   • Yuklangan fayllar     — hamma uchun ochiq (rasm, hujjat)
 #
-# DIQQAT: quyidagi qiymatlar server tanlangandan keyin to'ldiriladi —
-#   server_name, ssl_certificate yo'llari, root katalogi, php-fpm socket nomi.
+# Nusxa olgach ALBATTA to'g'irlang:
+#   server_name, root katalogi, php-fpm socket nomi,
+#   ssl_certificate yo'llari, API prefiksi va ahost IP manzili.
+# ---------------------------------------------------------------------
 
-# HTTP → HTTPS
+# HTTP → HTTPS. Sertifikat yangilash so'rovlari bundan mustasno.
 server {
     listen 80;
     listen [::]:80;
-    server_name gspi.uz www.gspi.uz;
 
-    # Let's Encrypt tekshiruvi shu yerdan o'tadi.
+    server_name admin.gspi.uz;
+
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
@@ -32,26 +32,23 @@ server {
 }
 
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
 
-    server_name gspi.uz www.gspi.uz;
+    server_name admin.gspi.uz;
 
-    # Laravel'ning public/ katalogi.
     root /var/www/gspi-backend/public;
     index index.php;
 
-    ssl_certificate     /etc/letsencrypt/live/gspi.uz/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/gspi.uz/privkey.pem;
-    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_certificate     /etc/letsencrypt/live/admin.gspi.uz/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/admin.gspi.uz/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
 
-    # Xavfsizlik sarlavhalari. Frontend o'zi ham qo'yadi; bu yerdagilari
-    # Laravel bergan javoblar (admin panel, API) uchun ham amal qiladi.
-    add_header X-Content-Type-Options    "nosniff" always;
-    add_header X-Frame-Options           "SAMEORIGIN" always;
-    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     client_max_body_size 20M;   # rasm va hujjat yuklash uchun
@@ -62,7 +59,8 @@ server {
     error_log  /var/log/nginx/gspi-error.log;
 
     # ------------------------------------------------------------------
-    # Fayllar — PHP ham, Node ham aralashmaydi, nginx o'zi beradi.
+    # Yuklangan fayllar — nginx o'zi beradi, PHP aralashmaydi.
+    # Bular saytda ko'rinadi, shuning uchun hamma uchun ochiq.
     # ------------------------------------------------------------------
     location ^~ /upload/ {
         expires 30d;
@@ -86,7 +84,24 @@ server {
     }
 
     # ------------------------------------------------------------------
-    # Laravel: admin panel, autentifikatsiya va API
+    # API — FAQAT frontend serveri uchun.
+    #
+    # `<API_PREFIKSI>` o'rniga `.env` dagi `API_PREFIX` qiymatini qo'ying.
+    # `<AHOST_IP>` — ahost.uz serverining tashqi IP manzili, uni
+    # hostingdan so'rang.
+    #
+    # Prefiksning maxfiyligi himoyaning bir qismi, lekin yagonasi
+    # bo'lmasligi kerak: API endi internetdan ko'rinadi.
+    # ------------------------------------------------------------------
+    location ^~ /<API_PREFIKSI>/ {
+        allow <AHOST_IP>;
+        deny  all;
+
+        try_files $uri /index.php?$query_string;
+    }
+
+    # ------------------------------------------------------------------
+    # Admin panel — xodimlar uchun, IP bilan cheklanmaydi.
     # ------------------------------------------------------------------
     location ^~ /admin/ {
         try_files $uri /index.php?$query_string;
@@ -100,19 +115,10 @@ server {
         try_files $uri /index.php?$query_string;
     }
 
-    # API ATAYLAB TASHQARIGA OCHILMAGAN.
-    #
-    # Next.js Laravelga localhostdan boradi (BACKEND_URL=http://127.0.0.1:8000),
-    # shuning uchun API prefiksi uchun bu yerda `location` kerak emas.
-    # Tashqaridan kelgan so'rov Next.js ga tushadi va 404 oladi — maxfiy
-    # prefiks shu tariqa haqiqatan yopiq qoladi.
-    #
-    # Agar kelajakda API tashqi iste'molchiga kerak bo'lsa, o'shanda alohida
-    # `location` qo'shiladi va throttle qayta ko'rib chiqiladi.
-
-    # Laravelning kirish nuqtasidan boshqa hech qanday PHP fayl bajarilmasin.
-    # `public/` ichida adminer kabi begona skriptlar qolib ketishi mumkin;
-    # ular bajarilsa, bazaga to'g'ridan-to'g'ri kirish yo'li ochiladi.
+    # Laravelning kirish nuqtasidan boshqa hech qanday PHP fayl
+    # bajarilmasin. `public/` ichida adminer kabi begona skriptlar
+    # qolib ketishi mumkin; ular bajarilsa, bazaga to'g'ridan-to'g'ri
+    # kirish yo'li ochiladi.
     # Bu qoida quyidagi `.php` qoidasidan OLDIN turishi shart.
     location ~ ^/(?!index\.php$).*\.php$ {
         deny all;
@@ -127,22 +133,18 @@ server {
     }
 
     # ------------------------------------------------------------------
-    # Qolgan hamma narsa — Next.js
+    # Qolgan hamma narsa — Laravelga.
+    #
+    # Sayt sahifalari bu yerda EMAS: ular gspi.uz da, boshqa serverda.
+    # Shuning uchun bu yerga tushgan begona so'rov 404 oladi.
     # ------------------------------------------------------------------
     location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade           $http_upgrade;
-        proxy_set_header Connection        "upgrade";
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+        try_files $uri /index.php?$query_string;
     }
 
     # Yashirin fayllar (.env, .git) hech qachon berilmasin.
     location ~ /\.(?!well-known).* {
         deny all;
+        access_log off;
     }
 }
