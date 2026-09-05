@@ -398,8 +398,29 @@
                                 </div>
                                 <div class="form-group">
                                     <label for="phone_number" class="form-label">Telefon raqami</label>
-                                    <textarea name="phone_number" id="phone_number" cols="4" rows="4" class="form-control @error('phone_number') is-invalid @enderror" name="phone_number">{{ old('phone_number') ?? $site_info->phone_number ?? '+1 234 56 78  | +1 526 25 25...' }}</textarea>
+                                    <textarea name="phone_number" id="phone_number" cols="4" rows="3" class="form-control @error('phone_number') is-invalid @enderror" placeholder="+998 55 651 92 76 | +998 55 516 90 00">{{ old('phone_number') ?? $site_info->phone_number ?? '' }}</textarea>
                                     @error('phone_number')
+                                    <span class="invalid-feedback" role="alert">
+                                        <strong>{{ $message }}</strong>
+                                    </span>
+                                    @enderror
+                                    <div class="form-text">
+                                        Bir nechta raqamni <code>|</code> belgisi bilan ajrating.
+                                        Bu raqam saytning tepasida ham, pastki qismida ham koʻrinadi.
+                                    </div>
+                                </div>
+                                {{--
+                                    Call markaz raqami alohida: saytda "Call markaz"
+                                    yozuvi ostida chiqadi. Boʻsh qoldirilsa yuqoridagi
+                                    asosiy raqam ishlatiladi.
+                                --}}
+                                <div class="form-group">
+                                    <label for="call_center" class="form-label">Call markaz raqami</label>
+                                    <input type="text" name="call_center" id="call_center"
+                                           class="form-control @error('call_center') is-invalid @enderror"
+                                           value="{{ old('call_center') ?? $site_info->call_center ?? '' }}"
+                                           placeholder="Ixtiyoriy — boʻsh qoldirsangiz asosiy raqam ishlatiladi">
+                                    @error('call_center')
                                     <span class="invalid-feedback" role="alert">
                                         <strong>{{ $message }}</strong>
                                     </span>

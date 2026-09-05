@@ -1015,6 +1015,8 @@ class ApiController extends Controller
             'admission_url' => $site_info->admission_url,
             'address' => $site_info->address[$locale] ?? $site_info->address,  // Manzil
             'phone_number' => $site_info->phone_number,  // Telefon raqami
+            // Call markaz alohida raqam; boʻsh boʻlsa frontend asosiysini oladi.
+            'call_center' => $site_info->call_center,
             'email' => $site_info->email,  // Elektron pochta
 //            'work_time' => $site_info->work_time[$locale] ?? $site_info->work_time ?? null,  // Ish vaqti
             'map' => $site_info->map,  // Xarita

@@ -140,6 +140,7 @@ class SiteInfoController extends Controller
                 'logo_dark' => $data['logo_dark'] ?? null,
                 'address' => $data['address'] ?? null,
                 'phone_number' => $data['phone_number'] ?? null,
+                'call_center' => ($data['call_center'] ?? null) ?: null,
                 'email' => $data['email'] ?? null,
 //                'work_time' => $data['work_time'] ?? null,
                 'map' => $data['map'] ?? null,

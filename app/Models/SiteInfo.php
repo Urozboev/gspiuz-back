@@ -21,6 +21,7 @@ class SiteInfo extends Model
         'admission_url',
         'address',
         'phone_number',
+        'call_center',
         'email',
         'yt_url',
         'work_time',
