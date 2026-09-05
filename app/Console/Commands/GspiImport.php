@@ -338,6 +338,10 @@ class GspiImport extends Command
         $this->newLine(2);
         $this->info(sprintf('  %d ta xodim qoʻshildi.', count($new)));
         $this->line('  <fg=gray>Rasmlar va boʻlim bogʻlanishi keyin qoʻshiladi.</>');
+        $this->newLine();
+        $this->warn('  Kontaktlarni tekshirib chiqing.');
+        $this->line('  Manbadagi telefon va email har doim ham toʻgʻri emas — bittasi');
+        $this->line('  allaqachon xato ekani aniqlangan. Admin paneldan koʻrib chiqing.');
 
         return self::SUCCESS;
     }
