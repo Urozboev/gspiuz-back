@@ -3,275 +3,300 @@
 namespace App\Console\Commands;
 
 use App\Models\Employ;
+use App\Models\EmployMeta;
 use App\Models\Post;
 use App\Models\PostsCategory;
 use Illuminate\Console\Command;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 /**
- * Hozirgi gspi.uz saytining API'sidan kontentni koʻchiradi.
+ * Eski gspi.uz bazasidan kontentni koʻchiradi.
  *
- * Kirish maʼlumoti (Basic auth) **hech qayerga yozilmaydi**: buyruq uni
- * soʻraydi, faqat shu ishga ishlatadi. Uni `.env` ga qoʻymang va buyruq
- * qatoriga yozmang — terminal tarixida qolib ketadi.
+ * Manba — `legacy` ulanishi (`.env` dagi `LEGACY_DB_DATABASE`). Eski
+ * saytning dump'i mahalliy bazaga yuklanadi, buyruq oʻshandan oʻqiydi.
  *
- *   php artisan gspi:import news              — nima koʻchishini koʻrsatadi
- *   php artisan gspi:import news --apply      — haqiqatan yozadi
+ *   php artisan gspi:import all             — nima koʻchishini koʻrsatadi
+ *   php artisan gspi:import all --apply     — haqiqatan koʻchiradi
+ *   php artisan gspi:import news --limit=5  — faqat yangiliklar
  *
- * Buyruq **idempotent**: bir marta koʻchirilgan yozuv qayta yozilmaydi,
- * shuning uchun uzilib qolsa yana ishga tushiraverish mumkin.
+ * Buyruq **idempotent**: bir marta koʻchirilgan yozuv qayta qoʻshilmaydi.
  */
 class GspiImport extends Command
 {
     protected $signature = 'gspi:import
-        {what : news | announcements | employees}
-        {--limit=40 : Nechta yozuv koʻchirilsin (eng yangisidan)}
+        {what=all : all | departments | employees | news | announcements | requisites}
+        {--limit=5 : Yangilik va eʼlonlardan nechtasi (eng yangisidan)}
         {--apply : Bazaga haqiqatan yozish}';
 
-    protected $description = 'gspi.uz API sidan kontentni koʻchiradi';
+    protected $description = 'Eski gspi.uz bazasidan kontentni koʻchiradi';
 
-    private const BASE = 'https://api.gspi.uz/api';
+    private const TYPE_LEADERSHIP = 1;
+    private const TYPE_DEPARTMENT = 2;
+    private const TYPE_FACULTY = 3;
+    private const TYPE_KAFEDRA = 4;
+    private const TYPE_CENTER = 5;
 
-    private string $auth = '';
+    /** `looksLikePage()` natijasi — har tuzilma uchun bir marta hisoblanadi. */
+    private array $pageCache = [];
 
     public function handle(): int
     {
         $what = (string) $this->argument('what');
 
-        if (!in_array($what, ['news', 'announcements', 'employees'], true)) {
-            $this->error('  news, announcements yoki employees boʻlishi kerak.');
+        $known = ['all', 'departments', 'employees', 'news', 'announcements', 'requisites'];
+
+        if (!in_array($what, $known, true)) {
+            $this->error('  Mumkin boʻlganlari: ' . implode(', ', $known));
 
             return self::FAILURE;
         }
 
-        if (!$this->authenticate()) {
+        if (!$this->legacyIsReachable()) {
             return self::FAILURE;
         }
 
-        // Manbada xodimlar `departments` deb atalgan.
-        $rows = $this->fetch($what === 'employees' ? 'departments' : $what);
-
-        if ($rows === null) {
-            return self::FAILURE;
+        if (!$this->option('apply')) {
+            $this->newLine();
+            $this->warn('  Bu faqat roʻyxat — bazaga hech narsa yozilmaydi.');
         }
 
-        $this->info(sprintf('  Manbada %d ta yozuv topildi.', count($rows)));
+        $steps = $what === 'all'
+            ? ['departments', 'employees', 'news', 'announcements', 'requisites']
+            : [$what];
 
-        return match ($what) {
-            'employees' => $this->importEmployees($rows),
-            default => $this->importPosts($rows, $what),
-        };
+        foreach ($steps as $step) {
+            $this->newLine();
+
+            match ($step) {
+                'departments' => $this->importDepartments(),
+                'employees' => $this->importEmployees(),
+                'news' => $this->importPosts('yangiliklars', 'yangiliklar', 'Yangiliklar'),
+                'announcements' => $this->importPosts('elonlars', 'elonlar', 'Eʼlonlar'),
+                'requisites' => $this->showRequisites(),
+            };
+        }
+
+        if (!$this->option('apply')) {
+            $this->newLine();
+            $this->line('  Koʻchirish uchun <fg=yellow>--apply</> qoʻshing.');
+        }
+
+        $this->newLine();
+
+        return self::SUCCESS;
     }
 
-    /** Kirish maʼlumotini soʻraydi va bitta soʻrov bilan tekshiradi. */
-    private function authenticate(): bool
+    private function legacy(string $table): Builder
     {
-        $this->newLine();
-        $this->line('  gspi.uz API kirish kaliti (Basic auth qiymati).');
-        $this->line('  <fg=gray>Kiritilgan matn ekranda koʻrinmaydi va hech qayerga saqlanmaydi.</>');
+        return DB::connection('legacy')->table($table);
+    }
 
-        $this->auth = trim((string) $this->secret('  Kalit'));
-
-        if ($this->auth === '') {
-            $this->error('  Kalit kiritilmadi.');
-
-            return false;
-        }
-
-        // Foydalanuvchi "Basic xxx" koʻrinishida ham kiritishi mumkin.
-        $this->auth = (string) preg_replace('~^Basic\s+~i', '', $this->auth);
-
-        if ($this->request('menus') === null) {
-            $this->error('  Kalit qabul qilinmadi yoki API javob bermadi.');
+    private function legacyIsReachable(): bool
+    {
+        try {
+            $this->legacy('tuzilmas')->count();
+        } catch (\Throwable $e) {
+            $this->error('  Eski bazaga ulanib boʻlmadi.');
+            $this->line('  `.env` dagi `LEGACY_DB_DATABASE` ni tekshiring.');
+            $this->line('  <fg=gray>' . $e->getMessage() . '</>');
 
             return false;
         }
-
-        $this->info('  Kalit qabul qilindi.');
 
         return true;
     }
 
-    private function request(string $path): ?array
-    {
-        try {
-            $response = Http::withHeaders(['Authorization' => 'Basic ' . $this->auth])
-                ->timeout(60)
-                ->acceptJson()
-                ->get(self::BASE . '/' . $path);
-        } catch (\Throwable $e) {
-            $this->error('  Ulanmadi: ' . $e->getMessage());
-
-            return null;
-        }
-
-        if (!$response->successful()) {
-            $this->error(sprintf('  %s → HTTP %d', $path, $response->status()));
-
-            return null;
-        }
-
-        return $response->json();
-    }
-
-    /** Javob `data` ichida ham, toʻgʻridan-toʻgʻri massiv ham boʻlishi mumkin. */
-    private function fetch(string $path): ?array
-    {
-        $json = $this->request($path);
-
-        if ($json === null) {
-            return null;
-        }
-
-        $rows = $json['data'] ?? $json;
-
-        return is_array($rows) ? array_values($rows) : null;
-    }
-
-    /** HTML entity'larni ochadi: `&#39;` → `'`. */
+    /** HTML entity'larni ochadi va boʻsh joylarni tozalaydi. */
     private function clean(?string $value): string
     {
-        return trim(html_entity_decode((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $value = html_entity_decode((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return trim(preg_replace('~\s+~u', ' ', $value) ?? '');
     }
 
-    /** Uch tilli maydonni yigʻadi; boʻsh tarjima oʻzbekchaga tushadi. */
-    private function trio(array $row, string $prefix): array
+    /** Uch tilli maydon; boʻsh tarjima oʻzbekchaga tushadi. */
+    private function trio(object $row, string $prefix, bool $keepHtml = false): array
     {
-        $uz = $this->clean($row[$prefix . '_uz'] ?? null);
+        $take = function (string $lang) use ($row, $prefix, $keepHtml): string {
+            $raw = (string) ($row->{$prefix . '_' . $lang} ?? '');
+
+            return $keepHtml
+                ? trim(html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'))
+                : $this->clean($raw);
+        };
+
+        $uz = $take('uz');
 
         return [
             'uz' => $uz,
-            'ru' => $this->clean($row[$prefix . '_ru'] ?? null) ?: $uz,
-            'en' => $this->clean($row[$prefix . '_en'] ?? null) ?: $uz,
+            'ru' => $take('ru') ?: $uz,
+            'en' => $take('en') ?: $uz,
         ];
     }
 
-    private function uniqueSlug(string $title, string $table): string
+    private function uniqueSlug(string $base, string $table): string
     {
-        $base = Str::slug($title) ?: 'yozuv';
-        $slug = $base;
+        $slug = Str::slug($base) ?: 'yozuv';
+        $candidate = $slug;
         $i = 2;
 
-        while (DB::table($table)->where('slug', $slug)->exists()) {
-            $slug = $base . '-' . $i++;
+        while (DB::table($table)->where('slug', $candidate)->exists()) {
+            $candidate = $slug . '-' . $i++;
         }
 
-        return $slug;
+        return $candidate;
     }
 
-    private function importPosts(array $rows, string $what): int
-    {
-        // Eng yangisidan boshlaymiz.
-        usort($rows, fn ($a, $b) => strcmp((string) ($b['created_at'] ?? ''), (string) ($a['created_at'] ?? '')));
+    // ------------------------------------------------------------------
+    // Boʻlimlar
+    // ------------------------------------------------------------------
 
-        $rows = array_slice($rows, 0, max(1, (int) $this->option('limit')));
+    /**
+     * Eski `tuzilmas` dan boʻlimlarni koʻchiradi.
+     *
+     * Faqat haqiqiy xodimi bor tuzilmalar olinadi: qolganlari
+     * ("Rekvizitlar", "Resurslar", "Yashil Institut") aslida boʻlim
+     * emas, sahifa mavzusi — eski saytda ular ham shu jadvalda yotadi.
+     */
+    private function importDepartments(): void
+    {
+        $this->line('<fg=cyan>  Boʻlimlar</>');
+
+        $ids = $this->legacy('kafedras')->distinct()->pluck('tuzilma_id')->all();
+
+        $rows = $this->legacy('tuzilmas')->whereIn('id', $ids)->orderBy('id')->get();
 
         $new = [];
         $skipped = 0;
 
         foreach ($rows as $row) {
-            $title = $this->trio($row, 'title');
+            $name = $this->trio($row, 'name');
 
-            if ($title['uz'] === '') {
+            if ($name['uz'] === '' || $this->looksLikePage((int) $row->id)) {
                 continue;
             }
 
-            // Manbadagi slug boʻlsa oʻshani ishlatamiz — takror import
-            // qilinganda ayni yozuv qayta yozilmasligi shunga bogʻliq.
-            $slug = Str::slug($this->clean($row['slug'] ?? '')) ?: Str::slug($title['uz']);
+            $slug = Str::slug($row->slug ?: $name['uz']);
 
-            if ($slug !== '' && Post::where('slug', $slug)->exists()) {
+            if (DB::table('departments')->where('slug', $slug)->exists()) {
                 $skipped++;
 
                 continue;
             }
 
             $new[] = [
-                'title' => $title,
-                'desc' => $this->trio($row, 'body'),
-                'slug' => $slug !== '' ? $slug : $this->uniqueSlug($title['uz'], 'posts'),
-                'date' => substr((string) ($row['created_at'] ?? now()->toDateString()), 0, 10),
-                'views_count' => (int) ($row['view'] ?? 0),
+                'name' => $name,
+                'slug' => $slug,
+                'type' => $this->departmentType($name['uz']),
             ];
         }
 
-        $this->report($new, $skipped, fn ($r) => [mb_substr($r['title']['uz'], 0, 52), $r['date']]);
+        $this->summary($new, $skipped, fn ($r) => [
+            mb_substr($r['name']['uz'], 0, 48),
+            $this->typeLabel($r['type']),
+        ]);
 
         if (!$this->option('apply') || $new === []) {
-            return self::SUCCESS;
+            return;
         }
-
-        $category = $this->categoryFor($what);
-
-        $bar = $this->output->createProgressBar(count($new));
 
         foreach ($new as $row) {
-            $post = Post::create([
-                'title' => $row['title'],
-                'subtitle' => ['uz' => '', 'ru' => '', 'en' => ''],
-                'desc' => $row['desc'],
+            DB::table('departments')->insert([
+                'name' => json_encode($row['name'], JSON_UNESCAPED_UNICODE),
                 'slug' => $row['slug'],
-                'date' => $row['date'],
-                'views_count' => $row['views_count'],
+                'structure_type_id' => $row['type'],
+                'active' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
-
-            if ($category) {
-                $post->postsCategories()->syncWithoutDetaching([$category->id]);
-            }
-
-            $bar->advance();
         }
 
-        $bar->finish();
-        $this->newLine(2);
-        $this->info(sprintf('  %d ta yozuv qoʻshildi.', count($new)));
-        $this->line('  <fg=gray>Rasmlar koʻchirilmadi — manzil naqshi hali nomaʼlum.</>');
-
-        return self::SUCCESS;
+        $this->info(sprintf('  %d ta boʻlim qoʻshildi.', count($new)));
     }
 
     /**
-     * Yozuv qaysi turkumga tushishi.
+     * Tuzilma aslida sahifa mavzusimi?
      *
-     * Frontend `/news?category=<slug>` orqali filtrlaydi, shuning uchun
-     * turkum biriktirilmasa eʼlonlar eʼlonlar sahifasida koʻrinmaydi.
+     * Eski bazada "Rekvizitlar" kabi sahifalar ham `kafedras` jadvalida
+     * yotadi: yozuvning "ismi" tuzilma nomining oʻzi boʻladi. Kamida
+     * bitta yozuv boshqacha atalgan boʻlsa — bu haqiqiy boʻlim.
      */
-    private function categoryFor(string $what): ?PostsCategory
+    private function looksLikePage(int $tuzilmaId): bool
     {
-        $known = [
-            'news' => ['yangiliklar', ['uz' => 'Yangiliklar', 'ru' => 'Новости', 'en' => 'News']],
-            'announcements' => ['elonlar', ['uz' => 'Eʼlonlar', 'ru' => 'Объявления', 'en' => 'Announcements']],
-        ];
-
-        if (!isset($known[$what])) {
-            return null;
+        if (array_key_exists($tuzilmaId, $this->pageCache)) {
+            return $this->pageCache[$tuzilmaId];
         }
 
-        [$slug, $title] = $known[$what];
+        $structure = $this->legacy('tuzilmas')->where('id', $tuzilmaId)->first();
+        $people = $this->legacy('kafedras')->where('tuzilma_id', $tuzilmaId)->get(['name_uz']);
 
-        return PostsCategory::firstOrCreate(['slug' => $slug], ['title' => $title]);
+        if (!$structure || $people->isEmpty()) {
+            return $this->pageCache[$tuzilmaId] = true;
+        }
+
+        $structureName = Str::slug($this->clean($structure->name_uz));
+
+        foreach ($people as $person) {
+            if (Str::slug($this->clean($person->name_uz)) !== $structureName) {
+                return $this->pageCache[$tuzilmaId] = false;
+            }
+        }
+
+        return $this->pageCache[$tuzilmaId] = true;
     }
 
-    private function importEmployees(array $rows): int
+    private function departmentType(string $name): int
     {
+        $lower = mb_strtolower($name);
+
+        return match (true) {
+            str_contains($lower, 'rektor') => self::TYPE_LEADERSHIP,
+            str_contains($lower, 'fakultet') => self::TYPE_FACULTY,
+            str_contains($lower, 'kafedra') => self::TYPE_KAFEDRA,
+            str_contains($lower, 'markaz') => self::TYPE_CENTER,
+            default => self::TYPE_DEPARTMENT,
+        };
+    }
+
+    private function typeLabel(int $type): string
+    {
+        return match ($type) {
+            self::TYPE_LEADERSHIP => 'Rahbariyat',
+            self::TYPE_FACULTY => 'Fakultet',
+            self::TYPE_KAFEDRA => 'Kafedra',
+            self::TYPE_CENTER => 'Markaz',
+            default => 'Boʻlim',
+        };
+    }
+
+    // ------------------------------------------------------------------
+    // Xodimlar
+    // ------------------------------------------------------------------
+
+    private function importEmployees(): void
+    {
+        $this->line('<fg=cyan>  Xodimlar</>');
+
+        $rows = $this->legacy('kafedras')->orderBy('id')->get();
+
         $new = [];
         $skipped = 0;
+        $pages = 0;
 
         foreach ($rows as $row) {
-            $name = $this->clean($row['name_uz'] ?? '');
+            $name = $this->clean($row->name_uz);
 
             if ($name === '') {
                 continue;
             }
 
-            // "Qalandarov Aziz Abdukayumovich" → familiya, ism, otasining ismi
-            $parts = preg_split('~\s+~', $name, 3) ?: [];
+            if ($this->looksLikePage((int) $row->tuzilma_id)) {
+                $pages++;
 
-            $lastName = $parts[0] ?? '';
-            $firstName = $parts[1] ?? '';
-            $surname = $parts[2] ?? '';
+                continue;
+            }
 
             $slug = Str::slug($name);
 
@@ -281,45 +306,46 @@ class GspiImport extends Command
                 continue;
             }
 
+            // "Qalandarov Aziz Abdukayumovich" → familiya, ism, otasining ismi
+            $parts = preg_split('~\s+~u', $name, 3) ?: [];
+
             $new[] = [
-                'first_name' => $this->sameInAllLangs($firstName),
-                'last_name' => $this->sameInAllLangs($lastName),
-                'surname' => $this->sameInAllLangs($surname),
-                'position' => $this->trio($row, 'title'),
-                'work_time' => $this->trio($row, 'soha'),
-                'dec' => $this->trio($row, 'body'),
-                'email' => $this->clean($row['email'] ?? null) ?: null,
-                'phone' => $this->clean($row['tel'] ?? null) ?: null,
-                'slug' => $slug !== '' ? $slug : $this->uniqueSlug($name, 'employs'),
                 'display' => $name,
+                'last_name' => $this->everyLang($parts[0] ?? ''),
+                'first_name' => $this->everyLang($parts[1] ?? ''),
+                'surname' => $this->everyLang($parts[2] ?? ''),
+                'position' => $this->trio($row, 'title', true),
+                'work_time' => $this->trio($row, 'soha'),
+                'dec' => $this->trio($row, 'body', true),
+                'email' => $this->clean($row->email) ?: null,
+                'phone' => $this->clean($row->tel) ?: null,
+                'slug' => $slug !== '' ? $slug : $this->uniqueSlug($name, 'employs'),
+                'department_slug' => $this->departmentSlugFor((int) $row->tuzilma_id),
+                'position_id' => $this->positionFor($this->clean(strip_tags((string) $row->title_uz))),
+                'has_image' => $this->clean($row->image) !== '',
             ];
         }
 
-        $this->report($new, $skipped, fn ($r) => [
-            mb_substr($r['display'], 0, 38),
-            mb_substr(strip_tags($r['position']['uz']), 0, 40),
+        if ($pages > 0) {
+            $this->line(sprintf(
+                '  <fg=gray>%d ta yozuv oʻtkazib yuborildi — ular xodim emas, sahifa matni.</>',
+                $pages
+            ));
+        }
+
+        $this->summary($new, $skipped, fn ($r) => [
+            mb_substr($r['display'], 0, 36),
+            mb_substr(strip_tags($r['position']['uz']), 0, 42),
         ]);
 
         if (!$this->option('apply') || $new === []) {
-            return self::SUCCESS;
+            return;
         }
 
-        $this->newLine();
-        $this->warn('  Diqqat: xodimlar boʻlimga bogʻlanmaydi.');
-        $this->line('  Manbada faqat `tuzilma_id` bor, boʻlim nomlari yoʻq. Bogʻlanish');
-        $this->line('  admin paneldan qoʻlda kiritiladi yoki nomlar aniqlangach qoʻshiladi.');
-        $this->newLine();
-
-        if (!$this->confirm('Shunga qaramay koʻchirilsinmi?', false)) {
-            $this->line('  Bekor qilindi.');
-
-            return self::SUCCESS;
-        }
-
-        $bar = $this->output->createProgressBar(count($new));
+        $missingDepartment = 0;
 
         foreach ($new as $row) {
-            Employ::create([
+            $employ = Employ::create([
                 'first_name' => $row['first_name'],
                 'last_name' => $row['last_name'],
                 'surname' => $row['surname'],
@@ -331,51 +357,232 @@ class GspiImport extends Command
                 'slug' => $row['slug'],
             ]);
 
-            $bar->advance();
+            $departmentId = $row['department_slug']
+                ? DB::table('departments')->where('slug', $row['department_slug'])->value('id')
+                : null;
+
+            if (!$departmentId) {
+                $missingDepartment++;
+            }
+
+            EmployMeta::create([
+                'employ_id' => $employ->id,
+                'department_id' => $departmentId,
+                'position_id' => $row['position_id'],
+                'employ_staff_id' => 1,
+                'employ_form_id' => 1,
+                'employ_type_id' => 2,
+                'slug' => $this->uniqueSlug($row['slug'] . '-tayinlov', 'employ_metas'),
+                'active' => 1,
+                'order' => 1,
+            ]);
         }
 
-        $bar->finish();
-        $this->newLine(2);
         $this->info(sprintf('  %d ta xodim qoʻshildi.', count($new)));
-        $this->line('  <fg=gray>Rasmlar va boʻlim bogʻlanishi keyin qoʻshiladi.</>');
+
+        if ($missingDepartment > 0) {
+            $this->warn(sprintf('  %d tasi boʻlimga bogʻlanmadi — admin paneldan tanlang.', $missingDepartment));
+        }
+
         $this->newLine();
         $this->warn('  Kontaktlarni tekshirib chiqing.');
-        $this->line('  Manbadagi telefon va email har doim ham toʻgʻri emas — bittasi');
-        $this->line('  allaqachon xato ekani aniqlangan. Admin paneldan koʻrib chiqing.');
-
-        return self::SUCCESS;
+        $this->line('  Eski saytdagi telefon va emaildan kamida bittasi xato ekani');
+        $this->line('  aniqlangan. Rasmlar koʻchirilmadi — ular eski serverda qolgan.');
     }
 
-    /** Ism-familiya tarjima qilinmaydi — uch tilda ham bir xil. */
-    private function sameInAllLangs(string $value): array
+    /**
+     * Eski bazadagi erkin matnli lavozimdan `positions` jadvalidagi
+     * raqamni aniqlaydi.
+     *
+     * Bu raqam sahifada koʻrsatilmaydi — koʻrsatiladigan matn
+     * `employs.position` da saqlanadi. Raqam faqat guruhlash uchun:
+     * boʻlim sahifasida kim rahbar, kim xodim ekanini shu ajratadi.
+     */
+    private function positionFor(string $title): int
+    {
+        $t = mb_strtolower($title);
+
+        // Tartib muhim: "prorektor" ichida "rektor" bor, "dekan
+        // oʻrinbosari" esa dekan emas.
+        return match (true) {
+            str_contains($t, 'prorektor') => 2,
+            str_contains($t, 'rektor') => 1,
+            str_contains($t, 'orinbosari') || str_contains($t, 'oʻrinbosari')
+                || str_contains($t, 'o‘rinbosari') || str_contains($t, "o'rinbosari") => 8,
+            str_contains($t, 'dekan') => 3,
+            str_contains($t, 'kafedra mudiri') => 5,
+            str_contains($t, 'mudiri') || str_contains($t, 'boshlig') || str_contains($t, 'raisi')
+                || str_contains($t, 'direktor') || str_contains($t, 'boshqaruvchi') => 4,
+            str_contains($t, 'tyutor') => 6,
+            str_contains($t, 'professor') => 12,
+            str_contains($t, 'dotsent') => 13,
+            str_contains($t, 'katta o') => 7,
+            default => 8,
+        };
+    }
+
+    private function everyLang(string $value): array
     {
         return ['uz' => $value, 'ru' => $value, 'en' => $value];
     }
 
-    /** Koʻchiriladigan yozuvlarni yozishdan oldin koʻrsatadi. */
-    private function report(array $new, int $skipped, callable $columns): void
+    private function departmentSlugFor(int $tuzilmaId): ?string
     {
-        $this->newLine();
+        $structure = $this->legacy('tuzilmas')->where('id', $tuzilmaId)->first();
 
-        if ($skipped > 0) {
-            $this->line(sprintf('  <fg=gray>%d ta yozuv allaqachon bazada bor — oʻtkazib yuborildi.</>', $skipped));
+        if (!$structure) {
+            return null;
         }
 
-        if ($new === []) {
-            $this->info('  Yangi yozuv yoʻq.');
+        return Str::slug($structure->slug ?: $this->clean($structure->name_uz)) ?: null;
+    }
+
+    // ------------------------------------------------------------------
+    // Yangiliklar va eʼlonlar
+    // ------------------------------------------------------------------
+
+    private function importPosts(string $table, string $categorySlug, string $label): void
+    {
+        $this->line("<fg=cyan>  {$label}</>");
+
+        $limit = max(1, (int) $this->option('limit'));
+
+        // Talab qilinganidan koʻproq olamiz: bir qismi bazada boʻlishi
+        // yoki sarlavhasiz boʻlishi mumkin.
+        $rows = $this->legacy($table)->orderByDesc('id')->limit($limit * 4)->get();
+
+        $new = [];
+        $skipped = 0;
+
+        foreach ($rows as $row) {
+            if (count($new) >= $limit) {
+                break;
+            }
+
+            $title = $this->trio($row, 'title');
+
+            if ($title['uz'] === '') {
+                continue;
+            }
+
+            $slug = Str::slug($this->clean($row->slug ?? '')) ?: Str::slug(mb_substr($title['uz'], 0, 80));
+
+            if ($slug !== '' && Post::where('slug', $slug)->exists()) {
+                $skipped++;
+
+                continue;
+            }
+
+            $new[] = [
+                'title' => $title,
+                'desc' => $this->trio($row, 'body', true),
+                'slug' => $slug !== '' ? $slug : $this->uniqueSlug($title['uz'], 'posts'),
+                'date' => substr((string) ($row->created_at ?? now()->toDateString()), 0, 10),
+                'views' => (int) ($row->view ?? 0),
+            ];
+        }
+
+        $this->summary($new, $skipped, fn ($r) => [mb_substr($r['title']['uz'], 0, 54), $r['date']]);
+
+        if (!$this->option('apply') || $new === []) {
+            return;
+        }
+
+        $category = PostsCategory::firstOrCreate(
+            ['slug' => $categorySlug],
+            ['title' => ['uz' => $label, 'ru' => $label, 'en' => $label]]
+        );
+
+        foreach ($new as $row) {
+            $post = Post::create([
+                'title' => $row['title'],
+                'subtitle' => ['uz' => '', 'ru' => '', 'en' => ''],
+                'desc' => $row['desc'],
+                'slug' => $row['slug'],
+                'date' => $row['date'],
+                'views_count' => $row['views'],
+            ]);
+
+            $post->postsCategories()->syncWithoutDetaching([$category->id]);
+        }
+
+        $this->info(sprintf('  %d ta yozuv qoʻshildi.', count($new)));
+    }
+
+    // ------------------------------------------------------------------
+    // Rekvizitlar
+    // ------------------------------------------------------------------
+
+    /**
+     * Rekvizitlar eski bazada sahifa matni sifatida saqlangan, alohida
+     * ustunlarda emas. Shuning uchun ularni avtomatik yozmaymiz —
+     * koʻrsatamiz, foydalanuvchi tasdiqlab admin panelga kiritadi.
+     */
+    private function showRequisites(): void
+    {
+        $this->line('<fg=cyan>  Rekvizitlar</>');
+
+        $body = $this->legacy('kafedras')
+            ->join('tuzilmas', 'tuzilmas.id', '=', 'kafedras.tuzilma_id')
+            ->where('tuzilmas.name_uz', 'like', '%ekvizit%')
+            ->value('kafedras.body_uz');
+
+        if (!$body) {
+            $this->line('  <fg=gray>Eski bazada topilmadi.</>');
 
             return;
         }
 
-        $this->table(['Nomi', 'Qoʻshimcha'], array_map($columns, array_slice($new, 0, 10)));
+        $text = $this->clean(strip_tags(preg_replace('~<(br|/p|/tr|/td)[^>]*>~i', ' | ', $body) ?? ''));
 
-        if (count($new) > 10) {
-            $this->line(sprintf('  … va yana %d ta.', count($new) - 10));
+        $patterns = [
+            'Hisob raqami' => '~Hisob raqami:?\s*\|?\s*([\d\s]{20,30})~ui',
+            'Toʻlov-kontrakt hisobi' => '~kontrakt uchun hisob raqam:?\s*\|?\s*([\d\s]{20,30})~ui',
+            'MFO' => '~MFO:?\s*\|?\s*(\d{5})~ui',
+            'INN (STIR)' => '~INN:?\s*\|?\s*([\d\s]{9,15})~ui',
+            'OKONX (OKED)' => '~OKONX:?\s*\|?\s*(\d{5})~ui',
+            'Manzil' => '~Manzil:?\s*\|?\s*(\d{6}[^|]{10,70})~ui',
+        ];
+
+        $found = [];
+
+        foreach ($patterns as $label => $pattern) {
+            if (preg_match($pattern, $text, $m)) {
+                $found[] = [$label, trim(preg_replace('~\s+~', ' ', $m[1]) ?? '')];
+            }
         }
 
-        if (!$this->option('apply')) {
-            $this->newLine();
-            $this->line('  Bu faqat roʻyxat. Koʻchirish uchun <fg=yellow>--apply</> qoʻshing.');
+        if ($found === []) {
+            $this->line('  <fg=gray>Matndan ajratib boʻlmadi.</>');
+
+            return;
+        }
+
+        $this->table(['Maydon', 'Qiymat'], $found);
+        $this->warn('  Bular avtomatik yozilmaydi.');
+        $this->line('  Buxgalteriyadan tasdiqlatib, admin paneldan kiriting:');
+        $this->line('  <fg=gray>Sayt maʼlumotlari → Rekvizitlar</>');
+    }
+
+    // ------------------------------------------------------------------
+
+    /** Koʻchiriladigan yozuvlarni yozishdan oldin koʻrsatadi. */
+    private function summary(array $new, int $skipped, callable $columns): void
+    {
+        if ($skipped > 0) {
+            $this->line(sprintf('  <fg=gray>%d ta yozuv bazada bor — oʻtkazib yuborildi.</>', $skipped));
+        }
+
+        if ($new === []) {
+            $this->line('  <fg=gray>Yangi yozuv yoʻq.</>');
+
+            return;
+        }
+
+        $this->table(['Nomi', 'Qoʻshimcha'], array_map($columns, array_slice($new, 0, 12)));
+
+        if (count($new) > 12) {
+            $this->line(sprintf('  <fg=gray>… va yana %d ta.</>', count($new) - 12));
         }
     }
 }

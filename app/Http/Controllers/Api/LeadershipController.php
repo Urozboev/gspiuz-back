@@ -11,6 +11,12 @@ use Illuminate\Http\Request;
 
 class LeadershipController extends Controller
 {
+    /**
+     * Boʻlim sahifasida "rahbar" sifatida koʻrsatiladigan lavozimlar:
+     * rektor, prorektor, dekan, boʻlim boshligʻi, kafedra mudiri.
+     */
+    private const LEADERSHIP_POSITIONS = [1, 2, 3, 4, 5];
+
     public function get_employ_meta(Request $request)
     {
         $locale = $request->get('locale', app()->getLocale()); // Get the locale for translations
@@ -505,13 +511,17 @@ class LeadershipController extends Controller
         // Slug orqali bo'limni topish
         $department = Department::where('slug', $slug)->firstOrFail();
 
-        // Rahbarni topish
+        // Rahbarni topish.
+        //
+        // Rahbarlik lavozimlari bittasi emas: rektor, prorektor, dekan,
+        // boʻlim boshligʻi, kafedra mudiri. Ilgari bu yerda faqat
+        // `id = 4` (boʻlim boshligʻi) qidirilardi, shuning uchun rektor
+        // va kafedra mudiri oʻz sahifasida rahbar sifatida chiqmasdi.
         $employeeBoss = Employ::whereHas('employMeta', function ($query) use ($department) {
-            $query->whereHas('department', function ($subQuery) use ($department) {
-                $subQuery->where('id', $department->id);
-            })->whereHas('position', function ($subQuery) {
-                $subQuery->where('active', 1)->where('id', 4);
-            });
+            $query->where('department_id', $department->id)
+                ->whereHas('position', function ($subQuery) {
+                    $subQuery->where('active', 1)->whereIn('id', self::LEADERSHIP_POSITIONS);
+                });
         })->with(['employMeta' => function ($query) use ($department) {
             // Xodim bir nechta bo'limda bo'lishi mumkin — shu sahifaga
             // tegishli tayinlov olinadi, birinchisi emas.
@@ -519,17 +529,20 @@ class LeadershipController extends Controller
                 ->with(['department.structureType', 'department.parent', 'position','employ_type']);
         }])->first();
 
-        // Oddiy xodimlarni topish
+        // Qolgan xodimlar — boʻlimdagi hamma, rahbardan tashqari.
+        //
+        // Ilgari bu yerda `position_id != 4` sharti turgan edi. Bir boʻlimda
+        // bir nechta "boʻlim boshligʻi" boʻlsa (masalan institut kengashi
+        // tarkibida), ulardan bittasi rahbar sifatida chiqib, qolganlari
+        // hech qayerda koʻrinmay qolardi.
         $simpleEmployees = Employ::whereHas('employMeta', function ($query) use ($department) {
-            $query->whereHas('department', function ($subQuery) use ($department) {
-                $subQuery->where('id', $department->id);
-            })->whereHas('position', function ($subQuery) {
-                $subQuery->where('active', 1)->where('id', '!=', 4);
-            });
-        })->with(['employMeta' => function ($query) use ($department) {
             $query->where('department_id', $department->id)
-                ->with(['department.structureType', 'department.parent', 'position']);
-        }])->get();
+                ->whereHas('position', fn ($subQuery) => $subQuery->where('active', 1));
+        })->when($employeeBoss, fn ($query) => $query->where('id', '!=', $employeeBoss->id))
+            ->with(['employMeta' => function ($query) use ($department) {
+                $query->where('department_id', $department->id)
+                    ->with(['department.structureType', 'department.parent', 'position']);
+            }])->get();
 
         // Javobni qaytarish
         return response()->json([
