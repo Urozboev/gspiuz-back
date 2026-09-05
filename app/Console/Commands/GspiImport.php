@@ -26,7 +26,7 @@ use Illuminate\Support\Str;
 class GspiImport extends Command
 {
     protected $signature = 'gspi:import
-        {what=all : all | departments | employees | news | announcements | requisites}
+        {what=all : all | departments | employees | pages | news | announcements | requisites}
         {--limit=5 : Yangilik va eʼlonlardan nechtasi (eng yangisidan)}
         {--apply : Bazaga haqiqatan yozish}';
 
@@ -45,7 +45,7 @@ class GspiImport extends Command
     {
         $what = (string) $this->argument('what');
 
-        $known = ['all', 'departments', 'employees', 'news', 'announcements', 'requisites'];
+        $known = ['all', 'departments', 'employees', 'pages', 'news', 'announcements', 'requisites'];
 
         if (!in_array($what, $known, true)) {
             $this->error('  Mumkin boʻlganlari: ' . implode(', ', $known));
@@ -63,7 +63,7 @@ class GspiImport extends Command
         }
 
         $steps = $what === 'all'
-            ? ['departments', 'employees', 'news', 'announcements', 'requisites']
+            ? ['departments', 'employees', 'pages', 'news', 'announcements', 'requisites']
             : [$what];
 
         foreach ($steps as $step) {
@@ -72,6 +72,7 @@ class GspiImport extends Command
             match ($step) {
                 'departments' => $this->importDepartments(),
                 'employees' => $this->importEmployees(),
+                'pages' => $this->importPages(),
                 'news' => $this->importPosts('yangiliklars', 'yangiliklar', 'Yangiliklar'),
                 'announcements' => $this->importPosts('elonlars', 'elonlar', 'Eʼlonlar'),
                 'requisites' => $this->showRequisites(),
@@ -435,6 +436,101 @@ class GspiImport extends Command
         }
 
         return Str::slug($structure->slug ?: $this->clean($structure->name_uz)) ?: null;
+    }
+
+    // ------------------------------------------------------------------
+    // Sahifa matnlari
+    // ------------------------------------------------------------------
+
+    /**
+     * Eski saytda bir qancha sahifalar `kafedras` jadvalida, xodim
+     * koʻrinishida saqlangan: yozuvning "ismi" — sahifa nomi, `body_uz`
+     * esa sahifa matni. Ular shu yerda oʻz sahifasiga koʻchiriladi.
+     *
+     * Chapda eski tuzilma manzili, oʻngda bizdagi sahifa manzili.
+     */
+    private const PAGE_MAP = [
+        'ekofaol-talabalar' => 'eco-students',
+        'yashil-institut' => 'green-institute',
+        'axborot-soatlari' => 'information-hours',
+        'talabalar-turar-joyi' => 'dormitory',
+        'resurslar' => 'e-resources',
+        'rekvizitlar' => 'requisites',
+        'iqtidorli-talabalar' => 'talented-students',
+    ];
+
+    private function importPages(): void
+    {
+        $this->line('<fg=cyan>  Sahifa matnlari</>');
+
+        $new = [];
+        $missing = [];
+
+        foreach (self::PAGE_MAP as $legacySlug => $ourSlug) {
+            $row = $this->legacy('kafedras')
+                ->join('tuzilmas', 'tuzilmas.id', '=', 'kafedras.tuzilma_id')
+                ->where('tuzilmas.slug', $legacySlug)
+                ->select('kafedras.*')
+                ->first();
+
+            if (!$row || mb_strlen(strip_tags((string) $row->body_uz)) < 40) {
+                continue;
+            }
+
+            $page = DB::table('dinamik_menus as d')
+                ->join('menus as m', 'm.id', '=', 'd.menu_id')
+                ->where('m.slug', $ourSlug)
+                ->select('d.id', 'd.text')
+                ->first();
+
+            if (!$page) {
+                $missing[] = $ourSlug;
+
+                continue;
+            }
+
+            $existing = json_decode((string) $page->text, true);
+            $hadText = mb_strlen(strip_tags((string) ($existing['uz'] ?? ''))) > 20;
+
+            $new[] = [
+                'page_id' => $page->id,
+                'slug' => $ourSlug,
+                'text' => $this->trio($row, 'body', true),
+                'replaces' => $hadText,
+            ];
+        }
+
+        if ($missing !== []) {
+            $this->line('  <fg=gray>Sahifa topilmadi: ' . implode(', ', $missing) . '</>');
+        }
+
+        if ($new === []) {
+            $this->line('  <fg=gray>Koʻchiriladigan matn yoʻq.</>');
+
+            return;
+        }
+
+        $this->table(
+            ['Sahifa', 'Hajmi', 'Holati'],
+            array_map(fn ($r) => [
+                $r['slug'],
+                mb_strlen(strip_tags($r['text']['uz'])) . ' belgi',
+                $r['replaces'] ? 'mavjud matn almashadi' : 'boʻsh sahifa',
+            ], $new)
+        );
+
+        if (!$this->option('apply')) {
+            return;
+        }
+
+        foreach ($new as $row) {
+            DB::table('dinamik_menus')->where('id', $row['page_id'])->update([
+                'text' => json_encode($row['text'], JSON_UNESCAPED_UNICODE),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $this->info(sprintf('  %d ta sahifa toʻldirildi.', count($new)));
     }
 
     // ------------------------------------------------------------------
