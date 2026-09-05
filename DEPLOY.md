@@ -18,7 +18,7 @@ brauzer  ──HTTPS──▶  gspi.uz (ahost, Next.js)
 Bu ikki serverli tuzilma uchta narsani majburiy qiladi:
 
 1. **Backend internetdan yetib boradigan boʻlishi kerak** — ahost undan maʼlumot oladi. Demak API endi "ichki" emas.
-2. **Backendda HTTPS shart.** Soʻrovlar ochiq internet orqali oʻtadi; sertifikatsiz maxfiy prefiks ham, kontent ham yoʻlda koʻrinadi.
+2. **HTTPS'ni Kerio taʼminlaydi.** Soʻrovlar ochiq internet orqali oʻtadi, lekin sertifikat Laravel serverida emas, Kerio'da turadi (`*.gspi.uz` wildcard).
 3. **Kirishni ahost IP manzili bilan cheklash kerak** (7-boʻlim). Prefiksning maxfiyligi yagona himoya boʻlib qolmasin.
 
 Admin panel ham backend serverida turadi — unga alohida subdomen orqali kiriladi (masalan `admin.gspi.uz`), `gspi.uz` orqali emas.
@@ -32,13 +32,12 @@ Frontend qadamlari alohida hujjatda: `gspi-front/DEPLOY.md`.
 | # | Qadam | Qayerda |
 |---|---|---|
 | 1 | Backendni chiqarish (2–6-boʻlimlar) | Institut serveri |
-| 2 | Kerio Control'da 80/443 portlarini oʻtkazish (7-boʻlim) | Institut tarmoq admini |
-| 3 | `admin.gspi.uz` sertifikati (DNS allaqachon tayyor) | Institut serveri |
-| 4 | API tashqaridan ishlayotganini tasdiqlash | Istalgan kompyuter |
-| 5 | Frontendni **serverning oʻzida** build qilish | ahost |
-| 6 | Ahost IP'sini aniqlab, nginx `allow` ga yozish | Institut serveri |
+| 2 | Kerio'da teskari proksi qoidasi (7-boʻlim) | Institut tarmoq admini |
+| 3 | API tashqaridan ishlayotganini tasdiqlash | Istalgan kompyuter |
+| 4 | Frontendni **serverning oʻzida** build qilish | ahost |
+| 5 | Ahost IP'sini aniqlab, nginx `allow` ga yozish | Institut serveri |
 
-Toʻrtinchi qadam — oʻtish nuqtasi. U bajarilmaguncha frontendni build qilmang:
+Uchinchi qadam — oʻtish nuqtasi. U bajarilmaguncha frontendni build qilmang:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" \
@@ -133,6 +132,10 @@ CORS_ALLOWED_ORIGINS=https://gspi.uz,https://www.gspi.uz
 # API marshrutlari prefiksi — MAXFIY. Uzun tasodifiy satr.
 # Frontenddagi `BACKEND_API_PREFIX` bilan bir xil boʻlishi shart.
 API_PREFIX=<uzun-tasodifiy-satr>
+
+# Kerio teskari proksisining ichki IP manzili (7-boʻlim).
+# Boʻsh boʻlsa rasm manzillari http:// boʻlib chiqadi va bloklanadi.
+TRUSTED_PROXIES=<kerio-ichki-ip>
 ```
 
 **`APP_DEBUG=false` — eng muhim qator.** Debug yoqiq qolsa, har qanday xatolik sahifasi `.env` dagi hamma narsani, jumladan baza parolini, ochiq ko'rsatadi.
@@ -220,11 +223,50 @@ Shu sababdan kodda `env()` ishlatilmaydi — hamma sozlama `config/` orqali o'qi
 
 ---
 
-## 7. Nginx, SSL va kirishni cheklash
+## 7. Nginx va teskari proksi
 
-Backend alohida serverda turgani uchun nginx ikkita narsani beradi: **API** (faqat ahost uchun) va **admin panel** (xodimlar uchun).
+Backend **Kerio Control teskari proksisi ortida** turadi. Bu butun sozlamani belgilaydi, shuning uchun avval tuzilmani tushunib oling:
 
-Tayyor qoralama: `deploy/nginx.conf.example`. Uni koʻchiring va toʻrtta narsani toʻgʻrilang: `server_name`, `root` yoʻli, php-fpm socket nomi, sertifikat yoʻllari.
+```
+brauzer / ahost  ──HTTPS──▶  Kerio (198.163.204.233)
+                                │  HTTPS shu yerda tugaydi
+                                └──HTTP:80──▶  Laravel serveri
+```
+
+`198.163.204.233` — server emas, Kerio proksisi. Uning 80/443 portlarida **hozir barcha `*.gspi.uz` saytlari ishlaydi** va har biri host nomi boʻyicha oʻz ichki manziliga yoʻnaltiriladi.
+
+> **Port oʻtkazish (traffic rule) soʻralmasin.** 80/443 uchun port oʻtkazish qoʻyilsa, u portni butunlay oʻzlashtiradi va host nomiga qaramaydi — natijada institutning barcha saytlari ishdan chiqadi. Kerak boʻlgan narsa boshqa: **teskari proksi qoidasi**.
+
+### Tarmoq administratoriga nima soʻraladi
+
+Kerio Control → **Konfiguratsiya → Обратный прокси-сервер** boʻlimiga bitta qoida:
+
+| Maydon | Qiymat |
+|---|---|
+| Имя хоста | `admin.gspi.uz` |
+| Yoʻnaltirilsin | `http://<LARAVEL_ICHKI_IP>:80` |
+| SSL sertifikat | mavjud `gspi-wildcard` |
+
+`admin.gspi.uz` — `*.gspi.uz` ostida, ya'ni Kerio'dagi mavjud wildcard sertifikat uni qoplaydi. **Yangi sertifikat olish kerak emas.**
+
+### Laravel serverida SSL sozlanmaydi
+
+Uchta natija, uchalasi ham muhim:
+
+1. **Let's Encrypt kerak emas.** `certbot` ni umuman ishlatmang.
+2. **HTTPS ga qayta yoʻnaltirish yozilmasin.** Kerio backendga toza HTTP yuboradi; nginx 80-blokida `return 301 https://…` boʻlsa cheksiz aylanish (`ERR_TOO_MANY_REDIRECTS`) hosil boʻladi.
+3. **Sxema `X-Forwarded-Proto` orqali keladi.** `.env` da `TRUSTED_PROXIES` toʻldirilmasa, Laravel soʻrovni HTTP deb hisoblaydi va rasm hamda fayl manzillarini `http://` qilib chiqaradi — HTTPS sahifada brauzer ularni bloklaydi.
+
+```ini
+# .env — Kerio'ning ichki IP manzili
+TRUSTED_PROXIES=<KERIO_ICHKI_IP>
+
+APP_URL=https://admin.gspi.uz
+```
+
+### Nginx
+
+Tayyor qoralama: `deploy/nginx.conf.example` — u allaqachon proksi ortida ishlash uchun yozilgan (SSL yoʻq, redirect yoʻq, `real_ip` bor).
 
 ```bash
 cp deploy/nginx.conf.example /etc/nginx/sites-available/admin.gspi.uz
@@ -232,68 +274,32 @@ ln -s /etc/nginx/sites-available/admin.gspi.uz /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
 ```
 
-### Domen
+Toʻgʻirlanadigan qiymatlar: `server_name`, `root`, php-fpm socket nomi, `<KERIO_ICHKI_IP>`, `<API_PREFIKSI>`, `<AHOST_IP>`.
 
-Backend serveriga subdomen kerak — `admin.gspi.uz`. **DNS yozuvi allaqachon yaratilgan** va tarqalgan: `admin.gspi.uz` → `198.163.204.233` (A yozuvi, TTL 300).
+### Kirishni cheklash
 
-Subdomensiz ham ishlaydi (IP + port), lekin unda **Let's Encrypt sertifikat bera olmaydi**, HTTPS esa bu tuzilmada majburiy. Shuning uchun subdomen amalda shart.
-
-### Xavfsizlik devori — birinchi hal qilinadigan masala
-
-`admin.gspi.uz` institut serverining tashqi manziliga (`198.163.204.233`) yoʻnaltirilgan, **lekin u yerda toʻgʻridan-toʻgʻri veb-server turmaydi**. 80 va 443 portlarga **Kerio Control** xavfsizlik devori javob beradi va tashqi soʻrovlarni rad etadi:
-
-```
-$ curl -I http://admin.gspi.uz/
-HTTP/1.0 403 Forbidden
-… This message was created by Kerio Control Proxy
-```
-
-443-portdagi sertifikat ham Kerio'niki — oʻzi imzolagan, nomi UUID koʻrinishida va **muddati 2026-yil 20-martda tugagan**.
-
-SSH (52200) esa oʻtkaziladi, ya'ni ichkarida Linux server bor va unga faqat shu port ochilgan.
-
-**Nima qilish kerak.** Institut tarmoq administratoriga murojaat qiling va Kerio Control'da ikkita port oʻtkazish qoidasi soʻrang:
-
-| Tashqi port | Ichki server | Nima uchun |
-|---|---|---|
-| 80 (TCP) | Laravel serverining ichki IP'si, 80 | Let's Encrypt tekshiruvi shu portdan oʻtadi |
-| 443 (TCP) | Laravel serverining ichki IP'si, 443 | Saytning asosiy trafigi |
-
-80-port **majburiy**: usiz `certbot` domenni tasdiqlay olmaydi va sertifikat berilmaydi.
-
-Bu qoidalar qoʻyilmaguncha keyingi qadamlar bajarilmaydi — na sertifikat olinadi, na ahost API'ga ulanadi. Tekshirish:
-
-```bash
-curl -sI http://admin.gspi.uz/ | head -1
-```
-
-`Kerio` yoki `403` oʻrniga nginx javobi (`404`, `200` yoki `301`) kelsa — oʻtkazish ishlayapti.
-### Sertifikat
-
-```bash
-certbot --nginx -d admin.gspi.uz
-```
-
-DNS yozuvi tarqalgandan keyin bajaring, aks holda tekshiruv oʻtmaydi.
-
-### Kirishni cheklash — eng muhim qadam
-
-API endi internetdan koʻrinadi. Prefiksning maxfiyligi himoyaning bir qismi, lekin **yagonasi boʻlmasligi kerak**. API'ga faqat ahost serveri kira olsin:
+API endi internetdan koʻrinadi. Prefiksning maxfiyligi himoyaning bir qismi, lekin **yagonasi boʻlmasligi kerak** — API'ga faqat ahost serveri kira olsin:
 
 ```nginx
-# API — faqat frontend serveri uchun.
 location ^~ /<API_PREFIKSI>/ {
-    allow <ahost-server-IP>;
+    allow <AHOST_IP>;
     deny  all;
 
     try_files $uri /index.php?$query_string;
 }
 ```
 
+**Bu qoida `real_ip` sozlamasiga bogʻliq.** Proksi ortida hamma soʻrov Kerio'dan kelgandek koʻrinadi, shuning uchun konfiguratsiya boshida:
+
+```nginx
+set_real_ip_from <KERIO_ICHKI_IP>;
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+```
+
+Usiz `allow` hech qachon toʻgʻri ishlamaydi — yo hammani rad etadi, yo hech kimni.
+
 Ahost IP manzilini hostingdan soʻrang. Ahost shared hostingda — u yerda chiquvchi IP odatda barqaror, lekin **kafolat yoʻq**: hosting infratuzilmani oʻzgartirsa IP ham oʻzgaradi va sayt toʻsatdan boʻsh maʼlumot koʻrsata boshlaydi. Bu holat 11-boʻlimda tasvirlangan — birinchi tekshiriladigan narsa aynan shu.
-
-Agar IP tez-tez oʻzgarsa, cheklashning oʻrniga API kaliti kerak boʻladi; ayting, alohida qilamiz.
-
 
 Admin panel esa xodimlar uchun ochiq qoladi (`/admin/`, `/login`), uni IP bilan cheklamang.
 
@@ -315,7 +321,7 @@ BACKEND_URL=https://admin.gspi.uz
 BACKEND_API_PREFIX=<xuddi shu maxfiy prefiks>
 ```
 
-`BACKEND_URL` da **`https://` boʻlishi shart** — `http://` boʻlsa soʻrovlar ochiq oʻtadi.
+`BACKEND_URL` da **`https://` boʻlishi shart** — Kerio HTTPS'da tinglaydi.
 
 ---
 ## 8. Xavfsizlik ro'yxati

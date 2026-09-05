@@ -1,55 +1,46 @@
 # ---------------------------------------------------------------------
 # GSPI backend — nginx namunasi
 #
-# Bu konfiguratsiya **backend serveri** uchun (institut serveri).
-# Frontend (Next.js) boshqa serverda — ahost.uz hostingida — turadi va
-# bu yerga tashqaridan, HTTPS orqali murojaat qiladi.
+# Bu server Kerio Control TESKARI PROKSISI ORTIDA turadi.
 #
-# Shu serverda nima bor:
-#   • Laravel admin paneli  — xodimlar uchun ochiq
-#   • API                   — faqat ahost serveri uchun
-#   • Yuklangan fayllar     — hamma uchun ochiq (rasm, hujjat)
+#   brauzer / ahost  ──HTTPS──▶  Kerio (198.163.204.233)
+#                                   │  HTTPS shu yerda tugaydi
+#                                   └──HTTP:80──▶  shu server
+#
+# Shundan kelib chiqadigan uchta qoida:
+#
+#   1. Bu yerda SSL sozlanmaydi. Sertifikat Kerio'da (*.gspi.uz uchun
+#      wildcard). Laravel serverida Let's Encrypt kerak emas.
+#   2. HTTPS ga qayta yo'naltirish YOZILMASIN. Kerio HTTP yuboradi;
+#      redirect qo'yilsa cheksiz aylanish (ERR_TOO_MANY_REDIRECTS) bo'ladi.
+#   3. Haqiqiy mijoz IP'si `X-Forwarded-For` da keladi. `real_ip` moduli
+#      bo'lmasa, hamma so'rov Kerio'dan kelgandek ko'rinadi va IP bo'yicha
+#      cheklash ishlamaydi.
 #
 # Nusxa olgach ALBATTA to'g'irlang:
 #   server_name, root katalogi, php-fpm socket nomi,
-#   ssl_certificate yo'llari, API prefiksi va ahost IP manzili.
+#   KERIO_ICHKI_IP, API prefiksi, AHOST_IP.
 # ---------------------------------------------------------------------
 
-# HTTP → HTTPS. Sertifikat yangilash so'rovlari bundan mustasno.
 server {
     listen 80;
     listen [::]:80;
 
     server_name admin.gspi.uz;
 
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-
-    server_name admin.gspi.uz;
-
     root /var/www/gspi-backend/public;
     index index.php;
 
-    ssl_certificate     /etc/letsencrypt/live/admin.gspi.uz/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/admin.gspi.uz/privkey.pem;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers off;
+    # Kerio yuborgan haqiqiy mijoz IP'sini tan olamiz. Usiz quyidagi
+    # `allow` qoidasi Kerio'ning o'z manzilini ko'radi va hech qachon
+    # to'g'ri ishlamaydi.
+    set_real_ip_from <KERIO_ICHKI_IP>;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
 
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     client_max_body_size 20M;   # rasm va hujjat yuklash uchun
 
@@ -60,7 +51,6 @@ server {
 
     # ------------------------------------------------------------------
     # Yuklangan fayllar — nginx o'zi beradi, PHP aralashmaydi.
-    # Bular saytda ko'rinadi, shuning uchun hamma uchun ochiq.
     # ------------------------------------------------------------------
     location ^~ /upload/ {
         expires 30d;
@@ -87,11 +77,10 @@ server {
     # API — FAQAT frontend serveri uchun.
     #
     # `<API_PREFIKSI>` o'rniga `.env` dagi `API_PREFIX` qiymatini qo'ying.
-    # `<AHOST_IP>` — ahost.uz serverining tashqi IP manzili, uni
-    # hostingdan so'rang.
+    # `<AHOST_IP>` — ahost.uz serverining tashqi IP manzili.
     #
-    # Prefiksning maxfiyligi himoyaning bir qismi, lekin yagonasi
-    # bo'lmasligi kerak: API endi internetdan ko'rinadi.
+    # Bu qoida yuqoridagi `set_real_ip_from` ga bog'liq: usiz nginx
+    # Kerio'ning manzilini ko'radi va hamma so'rovni rad etadi.
     # ------------------------------------------------------------------
     location ^~ /<API_PREFIKSI>/ {
         allow <AHOST_IP>;
@@ -127,6 +116,12 @@ server {
     location ~ \.php$ {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+
+        # Kerio HTTPS'ni tugatgani uchun PHP so'rovni HTTP deb ko'radi.
+        # Laravel to'g'ri manzil qurishi uchun sxemani uzatamiz —
+        # `.env` dagi `TRUSTED_PROXIES` bilan birga ishlaydi.
+        fastcgi_param HTTP_X_FORWARDED_PROTO $http_x_forwarded_proto;
+
         fastcgi_pass unix:/run/php/php8.4-fpm.sock;
         fastcgi_hide_header X-Powered-By;
         fastcgi_read_timeout 60s;
@@ -135,7 +130,7 @@ server {
     # ------------------------------------------------------------------
     # Qolgan hamma narsa — Laravelga.
     #
-    # Sayt sahifalari bu yerda EMAS: ular gspi.uz da, boshqa serverda.
+    # Sayt sahifalari bu yerda EMAS: ular gspi.uz da, ahost serverida.
     # Shuning uchun bu yerga tushgan begona so'rov 404 oladi.
     # ------------------------------------------------------------------
     location / {

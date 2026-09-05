@@ -54,6 +54,20 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Ishonchli proksilar
+    |--------------------------------------------------------------------------
+    |
+    | Sayt Kerio Control teskari proksisi ortida ishlaydi: HTTPS'ni Kerio
+    | tugatadi, backendga toza HTTP keladi. Bu yerda Kerio'ning ichki IP
+    | manzili koʻrsatilmasa, Laravel manzillarni `http://` deb quradi va
+    | HTTPS sahifada rasm hamda fayllar bloklanadi.
+    |
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES', ''),
+
     'asset_url' => env('ASSET_URL', null),
 
     /*
