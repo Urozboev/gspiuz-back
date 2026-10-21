@@ -83,11 +83,24 @@ class NoticesApiTest extends TestCase
 
     public function test_popups_return_expected_shape(): void
     {
-        $this->api('/popups')
-            ->assertOk()
-            ->assertJsonStructure([
-                'data' => [['id', 'title', 'desc', 'image' => ['lg', 'md', 'sm'], 'url', 'action', 'starts_at', 'ends_at']],
-            ]);
+        // Bazadagi xabarlarning muddati oʻtgan boʻlishi mumkin — test
+        // kalendarga bogʻliq boʻlmasligi uchun oʻzi bittasini qoʻyadi.
+        $notice = Rek::create([
+            'title' => ['uz' => 'Shakl sinovi'],
+            'active' => 1,
+            'starts_at' => now()->subDay()->toDateString(),
+            'ends_at' => now()->addDay()->toDateString(),
+        ]);
+
+        try {
+            $this->api('/popups')
+                ->assertOk()
+                ->assertJsonStructure([
+                    'data' => [['id', 'title', 'desc', 'image' => ['lg', 'md', 'sm'], 'url', 'action', 'starts_at', 'ends_at']],
+                ]);
+        } finally {
+            $notice->delete();
+        }
     }
 
     public function test_popup_appears_and_disappears_on_schedule(): void

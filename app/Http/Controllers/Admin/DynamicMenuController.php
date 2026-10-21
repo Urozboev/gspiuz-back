@@ -16,6 +16,13 @@ use App\Models\FormImage;
 
 class DynamicMenuController extends Controller
 {
+    /**
+     * Sahifa tahrirlash formasidagi takrorlanuvchi bo‘limlar turlari.
+     * Formada faqat shular yuklanadi, shuning uchun o‘chirish ham faqat
+     * shularga taalluqli bo‘lishi kerak.
+     */
+    private const FORM_SECTION_TYPES = ['formmenu', 'formmenu1', 'formmenu3'];
+
     public $title = 'Sahifalar';
     public $route_name = 'dynamic-menus';
     public $route_parameter = 'dynamic-menu';
@@ -344,15 +351,29 @@ class DynamicMenuController extends Controller
         }
 
         // **Bazani yangilash**
-        $dinamikMenu->update([
+        $attributes = [
             'menu_id' => $request->menu_id,
             'layout' => in_array($request->layout, DinamikMenu::LAYOUTS, true) ? $request->layout : 'single',
             'title' => $request->title,
             'short_title' => $request->short_title ?? null,
             'text' => $request->text ?? null,
-            'background' => $request->dropzone_images,
-            'file' => $filePaths ? array($filePaths) : null,
-        ]);
+            'file' => $filePaths ?: null,
+        ];
+
+        // Fon rasmi faqat forma uni yuborganda yangilanadi. Ilgari maydon
+        // har doim yozilardi va forma uni yubormagani uchun fon har
+        // saqlashda yoʻqolardi.
+        if ($request->has('dropzone_images')) {
+            $attributes['background'] = $request->dropzone_images ?: null;
+        }
+
+        foreach (['meta_title', 'meta_description'] as $field) {
+            if ($request->has($field)) {
+                $attributes[$field] = $request->input($field);
+            }
+        }
+
+        $dinamikMenu->update($attributes);
 
         // **Form menyularni qayta ishlash**
         $existingFormMenuIds = [];
@@ -393,8 +414,17 @@ class DynamicMenuController extends Controller
             }
         }
 
-        // **Keraksiz form menyularni o‘chirish**
-        FormMenu::where('dinamik_menu_id', $dinamikMenu->id)->whereNotIn('id', $existingFormMenuIds)->delete();
+        // **Formadan olib tashlangan bo‘limlarni o‘chirish**
+        //
+        // Faqat shu forma boshqaradigan turlar. Sahifaning boshqa
+        // elementlari — kartochkalar, fayllar, "Institut haqida" va bosh
+        // sahifa bloklari (`group` bo‘yicha) — alohida ekranda tahrirlanadi
+        // va formaga umuman yuklanmaydi. Ilgari bu yerda turi tekshirilmas
+        // edi, shuning uchun sahifa har saqlanganda ular o‘chib ketardi.
+        FormMenu::where('dinamik_menu_id', $dinamikMenu->id)
+            ->whereIn('type', self::FORM_SECTION_TYPES)
+            ->whereNotIn('id', $existingFormMenuIds)
+            ->delete();
 
         return redirect()->route('dynamic-menus.index')->with('success', 'Updated successfully');
     }
