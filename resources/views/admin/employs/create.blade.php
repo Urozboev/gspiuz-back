@@ -97,8 +97,6 @@
             <div class="col-8">
                 <div class="card mw-50">
                     <div class="card-body">
-                        <form method="post" action="{{ route($route_name . '.store') }}" enctype="multipart/form-data" id="add">
-                            @csrf
                             <div class="row">
                                 <div class="col-12">
                                     <ul class="nav nav-tabs" id="myTab" role="tablist">
@@ -197,6 +195,8 @@
                 </div>
             </div>
             <div class="col-4">
+                @include('admin.employs._assignments')
+
                 <div class="card mw-50">
                     <div class="card-body">
                         @csrf
@@ -220,8 +220,9 @@
                                 <div class="form-group">
                                     <label for="menu_id" class="form-label">Jinsi</label>
                                     <select name="gender" class="form-select">
-                                        <option value="male">Erkak</option>
-                                        <option value="female">Ayol</option>
+                                        <option value="">— koʻrsatilmagan —</option>
+                                        <option value="male" @selected(old('gender') === 'male')>Erkak</option>
+                                        <option value="female" @selected(old('gender') === 'female')>Ayol</option>
                                     </select>
                                 </div>
                                 <div class="form-group">

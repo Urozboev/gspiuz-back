@@ -78,6 +78,25 @@ class Employ extends Model
     public function getSmImgAttribute() {
         return $this->photo ? url('').'/upload/images/200/'.$this->photo : null;
     }
+
+    /**
+     * "Familiya Ism Otasining ismi" — admin paneldagi roʻyxatlar uchun.
+     *
+     * Ilgari tanlov roʻyxatlarida faqat ism chiqardi ("Aziz"), 66 xodim
+     * orasidan kerakli odamni topib boʻlmasdi.
+     */
+    public function displayName(string $locale = 'uz'): string
+    {
+        $part = fn ($value) => is_array($value) ? trim((string) ($value[$locale] ?? reset($value) ?: '')) : trim((string) $value);
+
+        $name = trim(implode(' ', array_filter([
+            $part($this->last_name),
+            $part($this->first_name),
+            $part($this->surname),
+        ])));
+
+        return $name !== '' ? $name : ('Xodim #' . $this->id);
+    }
     public function educational_programs()
     {
         return $this->belongsToMany(EducationalProgram::class, 'educational_program_employ', 'educational_program_id', 'employ_id');

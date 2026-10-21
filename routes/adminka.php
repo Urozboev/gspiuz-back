@@ -103,6 +103,12 @@ Route::middleware(['auth'])->prefix('admin')->group(function () {
 
     Route::resource('departaments', \App\Http\Controllers\Admin\DepartamentController::class);
 
+    // Boʻlim sahifasidan xodim biriktirish va chiqarish.
+    Route::post('departaments/{departament}/staff', [\App\Http\Controllers\Admin\DepartamentController::class, 'staffStore'])
+        ->name('departaments.staff.store');
+    Route::delete('departaments/{departament}/staff/{assignment}', [\App\Http\Controllers\Admin\DepartamentController::class, 'staffDestroy'])
+        ->name('departaments.staff.destroy');
+
 
     Route::get('employ_meta', [\App\Http\Controllers\Admin\EmployMetaController::class, 'index'])->name('employ_meta.index');
 

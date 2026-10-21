@@ -19,4 +19,34 @@ class Controller extends BaseController
         $this->main_lang = Lang::where('is_main', 1)
             ->firstOrFail();
     }
+
+    /**
+     * Formadan kelgan qiymatlarni bazaga yozishga tayyorlaydi.
+     *
+     * Uch tilli maydon toʻliq boʻsh kelsa (`{"uz":"","ru":"","en":""}`) —
+     * `null` qilib yoziladi. Aks holda boʻsh maydon "toʻldirilgan" deb
+     * hisoblanib, saytda boʻsh blok sifatida chiqishi mumkin edi.
+     * Boʻsh tanlov (`""`) ham `null` boʻladi.
+     *
+     * @param  array<string>  $fields  Tozalanadigan maydonlar
+     */
+    protected function blankToNull(array $data, array $fields): array
+    {
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+
+            $value = $data[$field];
+
+            if (is_array($value)) {
+                $filled = array_filter($value, fn ($item) => trim(strip_tags((string) $item)) !== '');
+                $data[$field] = $filled === [] ? null : $value;
+            } elseif (is_string($value) && trim($value) === '') {
+                $data[$field] = null;
+            }
+        }
+
+        return $data;
+    }
 }

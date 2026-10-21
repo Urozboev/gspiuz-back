@@ -90,6 +90,8 @@ Route::middleware(['api', 'locale','throttle:150,1'])->group(function () {
         Route::get('/leaderships', [\App\Http\Controllers\Api\LeadershipController::class, 'getRahbariyatEmployees']);
         Route::get('/leaderships/{slug}', [\App\Http\Controllers\Api\LeadershipController::class, 'getEmployeeDetails']);
 
+        // Tuzilma birliklari: ?type=2 — boshqarma va boʻlimlar, 3 — fakultet, 4 — kafedra, 5 — markaz.
+        Route::get('/units', [\App\Http\Controllers\Api\LeadershipController::class, 'units']);
         Route::get('/department', [\App\Http\Controllers\Api\LeadershipController::class, 'showEmployeesByPosition']);
         Route::get('/department/{slug}', [\App\Http\Controllers\Api\LeadershipController::class, 'getDepartmentEmployees']);
         Route::get('/department/user/{slug}', [\App\Http\Controllers\Api\LeadershipController::class, 'getDepartmentEmployeesuser']);

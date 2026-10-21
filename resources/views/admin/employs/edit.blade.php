@@ -131,8 +131,6 @@
             <div class="col-8">
                 <div class="card mw-50">
                     <div class="card-body">
-                        <form method="post" action="{{ route($route_name . '.store') }}" enctype="multipart/form-data" id="add">
-                            @csrf
                             <div class="row">
                                 <div class="col-12">
                                     <ul class="nav nav-tabs" id="myTab" role="tablist">
@@ -223,13 +221,15 @@
                             </div>
                             <!-- Button -->
                             <div class="model-btns d-flex justify-content-end">
-                                <a href="{{ route('posts_categories.index') }}" type="button" class="btn btn-secondary">Bekor qilish</a>
+                                <a href="{{ route('employs.index') }}" type="button" class="btn btn-secondary">Bekor qilish</a>
                                 <button type="submit" class="btn btn-primary ms-2">Saqlash</button>
                             </div>
                     </div>
                 </div>
             </div>
             <div class="col-4">
+                @include('admin.employs._assignments')
+
                 <div class="card mw-50">
                     <div class="card-body">
                         @csrf
@@ -247,18 +247,25 @@
                                     <label for="date" class="form-label">Manzil</label>
                                     <input type="text" id="date" name="slug" class="form-control" value="{{ old('slug') ?? $employ->slug }}" />
                                 </div>
+                                {{--
+                                    Ilgari "Holati" `status` oʻrniga `gender` ni oʻqirdi, "Jinsi" esa
+                                    boʻsh qiymatga ega emasdi — koʻrsatilmagan xodim saqlanganda
+                                    avtomatik "Erkak" va "Nofaol" boʻlib qolardi.
+                                --}}
                                 <div class="form-group">
-                                    <label for="menu_id" class="form-label">Holati</label>
-                                    <select name="status" class="form-select">
-                                        <option value="1" {{ $employ->gender == 1 ? 'selected' : '' }}>Faol</option>
-                                        <option value="0" {{ $employ->gender == 0 ? 'selected' : '' }}>Nofaol</option>
+                                    <label for="status" class="form-label">Holati</label>
+                                    <select name="status" id="status" class="form-select">
+                                        <option value="" @selected($employ->status === null || $employ->status === '')>— koʻrsatilmagan —</option>
+                                        <option value="1" @selected((string) $employ->status === '1')>Faol</option>
+                                        <option value="0" @selected((string) $employ->status === '0')>Nofaol</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
-                                    <label for="menu_id" class="form-label">Jinsi</label>
-                                    <select name="gender" class="form-select">
-                                        <option value="male" {{ $employ->gender == 'male' ? 'selected' : '' }}>Erkak</option>
-                                        <option value="female" {{ $employ->gender == 'female' ? 'selected' : '' }}>Ayol</option>
+                                    <label for="gender" class="form-label">Jinsi</label>
+                                    <select name="gender" id="gender" class="form-select">
+                                        <option value="" @selected(!$employ->gender)>— koʻrsatilmagan —</option>
+                                        <option value="male" @selected($employ->gender === 'male')>Erkak</option>
+                                        <option value="female" @selected($employ->gender === 'female')>Ayol</option>
                                     </select>
                                 </div>
                                 <!-- Special Checkbox -->

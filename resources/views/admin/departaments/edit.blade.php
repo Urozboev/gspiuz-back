@@ -1,192 +1,130 @@
 @extends('layouts.app')
 
 @section('links')
-
-    <script>
-        window.onload = function() {
-            var add_post = new Dropzone("div#dropzone", {
-                url: "{{ url('/admin/upload_from_dropzone') }}",
-                paramName: "file",
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                },
-                addRemoveLinks: true,
-                maxFiles: 1,
-                maxFilesize: 15, // MB
-                success: (file, response) => {
-                    let input = document.createElement('input');
-                    input.setAttribute('type', 'hidden');
-                    input.setAttribute('value', response.file_name);
-                    input.setAttribute('name', 'dropzone_images');
-
-                    let form = document.getElementById('add');
-                    form.append(input);
-                    console.log(response);
-                },
-                removedfile: function(file) {
-                    file.previewElement.remove();
-                    if (file.xhr) {
-                        let data = JSON.parse(file.xhr.response);
-                        let removing_img = document.querySelector('[value="' + data.file_name + '"]');
-                        removing_img.remove();
-                    } else {
-                        let data = file.name.split('/')[file.name.split('/').length - 1]
-                        let removing_img = document.querySelector('[value="' + data + '"]');
-                        removing_img.remove();
-                    }
-                },
-                error: function(file, message) {
-                    alert(message);
-                    this.removeFile(file);
-                },
-
-                // change default texts
-                dictDefaultMessage: "Fayllarni shu yerga tashlang",
-                dictRemoveFile: "Faylni oʻchirish",
-                dictCancelUpload: "Yuklashni bekor qilish",
-                dictMaxFilesExceeded: "Bundan ortiq yuklab boʻlmaydi"
-            });
-        };
-    </script>
-
+    @include('admin.departaments._dropzone')
 @endsection
 
 @section('content')
-    <!-- HEADER -->
+    @php $name = $departament->name[$main_lang->code] ?? ''; @endphp
+
     <div class="header">
         <div class="container-fluid">
-
-            <!-- Body -->
             <div class="header-body">
                 <div class="row align-items-end">
                     <div class="col">
-
-                        <!-- Title -->
-                        <h1 class="header-title">
-                            {{ $title }}
-                        </h1>
-
+                        <h6 class="header-pretitle">{{ $departament->structureType->name[$main_lang->code] ?? $title }}</h6>
+                        <h1 class="header-title">{{ $name }}</h1>
                         @include('app.components.page-hint')
-
                     </div>
-                </div> <!-- / .row -->
-            </div> <!-- / .header-body -->
+                </div>
+            </div>
             @include('app.components.breadcrumb', [
-            'datas' => [
-            [
-            'active' => false,
-            'url' => route($route_name.'.index'),
-            'name' => $title,
-            'disabled' => false
-            ],
-            [
-            'active' => true,
-            'url' => '',
-            'name' => 'Update',
-            'disabled' => true
-            ],
-            ]
+                'datas' => [
+                    ['active' => false, 'url' => route($route_name.'.index'), 'name' => $title, 'disabled' => false],
+                    ['active' => true, 'url' => '', 'name' => $name, 'disabled' => true],
+                ]
             ])
         </div>
-    </div> <!-- / .header -->
+    </div>
 
-    <!-- CARDS -->
     <div class="container-fluid">
         <div class="row">
-            <div class="col-8">
-                <div class="card mw-50">
+
+            {{-- Boʻlim haqida --}}
+            <div class="col-xl-7">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-header-title">Boʻlim haqida</h4>
+                    </div>
                     <div class="card-body">
-                        <form method="post" action="{{ route($route_name . '.update', $departament->id) }}" enctype="multipart/form-data" id="add">
+                        <form method="post" action="{{ route($route_name . '.update', $departament->id) }}" id="department-form">
                             @csrf
                             @method('PUT')
-                            <div class="row">
-                                <ul class="nav nav-tabs" id="myTab" role="tablist">
-                                    @foreach($langs as $lang)
-                                        <li class="nav-item" role="presentation">
-                                            <button class="nav-link {{ $loop->first ? 'active' : '' }}" id="{{ $lang->code }}-tab" data-bs-toggle="tab" data-bs-target="#{{ $lang->code }}" type="button" role="tab" aria-controls="{{ $lang->code }}" aria-selected="{{ $loop->first ? 'true' : 'false' }}">{{ $lang->title }}</button>
-                                        </li>
-                                    @endforeach
-                                </ul>
-                                <div class="tab-content" id="myTabContent">
-                                    @foreach($langs as $lang)
-                                        <div class="tab-pane mt-3 fade {{ $loop->first ? 'show active' : '' }}" id="{{ $lang->code }}" role="tabpanel" aria-labelledby="{{ $lang->code }}-tab">
-                                            <div class="form-group">
-                                                <label for="title" class="form-label {{ $lang->code == $main_lang->code ? 'required' : '' }}">Nomi</label>
-                                                <input type="text" {{ $lang->code == $main_lang->code ? 'required' : '' }} class="form-control @error('name.'.$lang->code) is-invalid @enderror" name="name[{{ $lang->code }}]" value="{{ old('name.'.$lang->code) ?? $departament->name[ $lang->code ]?? null }}" id="title" placeholder="Nomi...">
-                                                @error('name.'.$lang->code)
-                                                <span class="invalid-feedback" role="alert">
-                                                    <strong>{{ $message }}</strong>
-                                                </span>
-                                                @enderror
-                                            </div>
-                                        </div>
-                                    @endforeach
-                                        <div class="form-group">
-                                            <label for="parent_id" class="form-label">Yuqori turkum</label>
-                                            <select class="form-select @error('parent_id') is-invalid @enderror" id="parent_id" data-choices='{"": true}' name="parent_id">
-                                                <option value="">Asosiy</option>
-                                                @foreach ($departaments as $key => $item)
-                                                    <option value="{{ $item->id }}" {{ old('parent_id') ?? $departament->parent_id == $item->id ? 'selected' : '' }}>{{ $item->name[$main_lang->code] }}</option>
 
-                                                @endforeach
-                                            </select>
-                                            @error('parent_id')
-                                            <span class="invalid-feedback" role="alert">
-                                        <strong>{{ $message }}</strong>
-                                    </span>
-                                            @enderror
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="parent_id" class="form-label">Tuzilma turi</label>
-                                            <select class="form-select @error('structure_type_id') is-invalid @enderror" id="structure_type_id" data-choices='{"": true}' name="structure_type_id">
-                                                <option value="">Asosiy</option>
-                                                @foreach ($StructureTypes as $key => $item)
-                                                    <option value="{{ $item->id }}" {{ old('parent_id') ?? $departament->structure_type_id == $item->id ? 'selected' : '' }}>{{ $item->name[$main_lang->code] }}</option>
-                                                @endforeach
-                                            </select>
-                                            @error('parent_id')
-                                            <span class="invalid-feedback" role="alert">
-                                        <strong>{{ $message }}</strong>
-                                    </span>
-                                            @enderror
-                                        </div>
+                            @include('admin.departaments._form')
 
-                                    <div class="form-group">
-                                        <label for="menu_id" class="form-label">Holati</label>
-                                        <select name="active" class="form-select">
-                                            <option value="1" {{ $departament->active == 1 ? 'selected' : '' }}>Faol</option>
-                                            <option value="0" {{ $departament->active == 0 ? 'selected' : '' }}>Nofaol</option>
-                                        </select>
-
-                                    </div>
-                                        <div class="form-group">
-                                            <label for="date" class="form-label">Manzil</label>
-                                            <input type="text" id="date" name="slug" class="form-control" value="{{ old('slug') ?? $departament->slug }}" />
-                                        </div>
-                                    <div class="form-group">
-                                        <label for="subtitle" class="form-label">Kod</label>
-                                        <input type="text" class="form-control " name="code" value="{{ old('order') ?? $departament->code }}" id="subtitle" placeholder="Kod...">
-                                        @error('code')
-                                        <span class="invalid-feedback" role="alert">
-                                                    <strong>{{ $message }}</strong>
-                                                </span>
-                                        @enderror
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- Button -->
-                            <div class="model-btns d-flex justify-content-end">
-                                <a href="{{ route($route_name.'.index') }}" type="button" class="btn btn-secondary">Bekor qilish</a>
+                            <div class="d-flex justify-content-end mt-3">
+                                <a href="{{ route($route_name.'.index') }}" class="btn btn-secondary">Orqaga</a>
                                 <button type="submit" class="btn btn-primary ms-2">Saqlash</button>
                             </div>
-
                         </form>
                     </div>
                 </div>
             </div>
-            <div class="col-4">
 
+            {{-- Xodimlar --}}
+            <div class="col-xl-5">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-header-title">Xodimlar</h4>
+                        <span class="badge bg-secondary-subtle text-secondary">{{ $staff->count() }}</span>
+                    </div>
+
+                    @if($staff->isEmpty())
+                        <div class="card-body text-muted">
+                            Hali hech kim biriktirilmagan. Pastdan qoʻshing.
+                        </div>
+                    @else
+                        <ul class="list-group list-group-flush">
+                            @foreach($staff as $meta)
+                                <li class="list-group-item d-flex align-items-center gap-3">
+                                    <div class="flex-grow-1">
+                                        <a href="{{ route('employs.edit', $meta->employ_id) }}" class="fw-semibold">
+                                            {{ $meta->employ->displayName($main_lang->code) }}
+                                        </a>
+                                        <div class="small text-muted">
+                                            {{ $meta->position->name[$main_lang->code] ?? '—' }}
+                                            @unless($meta->active) · <span class="text-warning">yashirin</span> @endunless
+                                        </div>
+                                    </div>
+                                    <form method="post" action="{{ route('departaments.staff.destroy', [$departament->id, $meta->id]) }}"
+                                          onsubmit="return confirm('Xodim shu boʻlimdan chiqarilsinmi? Xodimning oʻzi oʻchmaydi.');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Boʻlimdan chiqarish">Chiqarish</button>
+                                    </form>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+
+                    <div class="card-footer">
+                        <h5 class="mb-3">Xodim qoʻshish</h5>
+                        <form method="post" action="{{ route('departaments.staff.store', $departament->id) }}">
+                            @csrf
+                            <div class="form-group mb-2">
+                                <select name="employ_id" class="form-select" data-choices='{"searchEnabled": true, "searchPlaceholderValue": "Familiya yoki ism…"}' required>
+                                    <option value="">— xodimni tanlang —</option>
+                                    @foreach($employees as $person)
+                                        <option value="{{ $person['id'] }}">{{ $person['name'] }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-8">
+                                    <select name="position_id" class="form-select" required>
+                                        <option value="">— lavozim —</option>
+                                        @foreach($positions as $position)
+                                            <option value="{{ $position->id }}">{{ $position->name[$main_lang->code] ?? $position->id }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div class="col-4">
+                                    <input type="number" min="0" name="order" class="form-control" placeholder="Tartib">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">Qoʻshish</button>
+                            <div class="form-text mt-2">
+                                Xodim bitta yozuv boʻlib qoladi. Uni boshqa boʻlimga ham qoʻshsangiz,
+                                maʼlumoti ikkala joyda ham bir xil koʻrinadi.
+                                Roʻyxatda yoʻq boʻlsa — avval
+                                <a href="{{ route('employs.create') }}">yangi xodim yarating</a>.
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </div>
+
         </div>
     </div>
 @endsection

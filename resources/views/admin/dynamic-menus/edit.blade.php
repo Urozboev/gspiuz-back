@@ -215,12 +215,16 @@
                                                 <div class="tab-pane mt-3 fade {{ $loop->first ? 'show active' : '' }}" id="{{ $lang->code }}" role="tabpanel"
                                                      aria-labelledby="{{ $lang->code }}-tab">
                                                     <div class="form-group">
-                                                        <label for="title" class="form-label {{ $lang->code == $main_lang->code ? 'required' : '' }}">Short
-                                                            tile</label>
-                                                        <input type="text" {{ $lang->code == $main_lang->code ? 'required' : ''
-                                                }} class="form-control @error('short_title.'.$lang->code) is-invalid
+                                                        {{--
+                                                            Sarlavha ostidagi qisqa izoh. Ilgari bu maydon
+                                                            `short_title` oʻrniga `title` ni koʻrsatardi va
+                                                            majburiy edi — har saqlashda izoh sarlavha bilan
+                                                            almashib, yoʻqolib ketardi.
+                                                        --}}
+                                                        <label for="short_title" class="form-label">Sarlavha ostidagi izoh</label>
+                                                        <input type="text" class="form-control @error('short_title.'.$lang->code) is-invalid
                                                 @enderror" name="short_title[{{ $lang->code }}]" value="{{
-                                                old('short_title.'.$lang->code) ?? $dynamic_menu->title[$lang->code] ?? null }}" id="short_title" placeholder="Qisqa sarlavha...">
+                                                old('short_title.'.$lang->code) ?? $dynamic_menu->short_title[$lang->code] ?? null }}" id="short_title" placeholder="Ixtiyoriy — sahifa sarlavhasi ostida kichik harfda chiqadi">
                                                         @error('short_title.'.$lang->code)
                                                         <span class="invalid-feedback" role="alert">
                                                     <strong>{{ $message }}</strong>

@@ -245,13 +245,10 @@
                                                      id="{{ $lang->code }}" role="tabpanel"
                                                      aria-labelledby="{{ $lang->code }}-tab">
                                                     <div class="form-group">
-                                                        <label for="title"
-                                                               class="form-label {{ $lang->code == $main_lang->code ? 'required' : '' }}">Short
-                                                            tile</label>
-                                                        <input type="text" {{ $lang->code == $main_lang->code ? 'required' : ''
-                                                }} class="form-control @error('short_title.'.$lang->code) is-invalid
+                                                        <label for="short_title" class="form-label">Sarlavha ostidagi izoh</label>
+                                                        <input type="text" class="form-control @error('short_title.'.$lang->code) is-invalid
                                                 @enderror" name="short_title[{{ $lang->code }}]" value="{{
-                                                old('short_title.'.$lang->code) }}" id="short_title" placeholder="Qisqa sarlavha...">
+                                                old('short_title.'.$lang->code) }}" id="short_title" placeholder="Ixtiyoriy — sahifa sarlavhasi ostida kichik harfda chiqadi">
                                                         @error('short_title.'.$lang->code)
                                                         <span class="invalid-feedback" role="alert">
                                                     <strong>{{ $message }}</strong>

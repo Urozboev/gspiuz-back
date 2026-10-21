@@ -506,48 +506,95 @@ class LeadershipController extends Controller
 //    }
     public function getDepartmentEmployees($slug)
     {
-        $locale = app()->getLocale(); // Joriy tilni olish
-
-        // Slug orqali bo'limni topish
         $department = Department::where('slug', $slug)->firstOrFail();
 
-        // Rahbarni topish.
-        //
-        // Rahbarlik lavozimlari bittasi emas: rektor, prorektor, dekan,
-        // boʻlim boshligʻi, kafedra mudiri. Ilgari bu yerda faqat
-        // `id = 4` (boʻlim boshligʻi) qidirilardi, shuning uchun rektor
-        // va kafedra mudiri oʻz sahifasida rahbar sifatida chiqmasdi.
-        $employeeBoss = Employ::whereHas('employMeta', function ($query) use ($department) {
-            $query->where('department_id', $department->id)
-                ->whereHas('position', function ($subQuery) {
-                    $subQuery->where('active', 1)->whereIn('id', self::LEADERSHIP_POSITIONS);
-                });
-        })->with(['employMeta' => function ($query) use ($department) {
-            // Xodim bir nechta bo'limda bo'lishi mumkin — shu sahifaga
-            // tegishli tayinlov olinadi, birinchisi emas.
-            $query->where('department_id', $department->id)
-                ->with(['department.structureType', 'department.parent', 'position','employ_type']);
-        }])->first();
+        return response()->json($this->departmentPayload($department));
+    }
 
-        // Qolgan xodimlar — boʻlimdagi hamma, rahbardan tashqari.
-        //
-        // Ilgari bu yerda `position_id != 4` sharti turgan edi. Bir boʻlimda
-        // bir nechta "boʻlim boshligʻi" boʻlsa (masalan institut kengashi
-        // tarkibida), ulardan bittasi rahbar sifatida chiqib, qolganlari
-        // hech qayerda koʻrinmay qolardi.
-        $simpleEmployees = Employ::whereHas('employMeta', function ($query) use ($department) {
+    /**
+     * Boʻlim sahifasi: boʻlim haqida maʼlumot, rahbari va xodimlari.
+     *
+     * Boshqarma, fakultet va kafedra sahifalari hammasi shu yerdan
+     * quriladi. Ilgari fakultet va kafedra boshqa mantiq ishlatardi
+     * (`leader` belgisi), shuning uchun boʻlim sahifasidagi tuzatishlar
+     * ularga yetib bormasdi.
+     *
+     * @return array{department: array, department_boss: ?Employ, simple_employee: \Illuminate\Support\Collection}
+     */
+    private function departmentPayload(Department $department): array
+    {
+        $locale = app()->getLocale();
+
+        // Shu boʻlimdagi faol tayinlovlar. Xodim bir nechta boʻlimda
+        // boʻlishi mumkin — har biriga aynan shu boʻlimdagi tayinlovi
+        // biriktiriladi, birinchisi emas.
+        $withThisAssignment = ['employMeta' => function ($query) use ($department) {
             $query->where('department_id', $department->id)
+                ->where('active', 1)
+                ->with(['department.structureType', 'department.parent', 'position', 'employ_type']);
+        }];
+
+        $people = Employ::whereHas('employMeta', function ($query) use ($department) {
+            $query->where('department_id', $department->id)
+                ->where('active', 1)
                 ->whereHas('position', fn ($subQuery) => $subQuery->where('active', 1));
-        })->when($employeeBoss, fn ($query) => $query->where('id', '!=', $employeeBoss->id))
-            ->with(['employMeta' => function ($query) use ($department) {
-                $query->where('department_id', $department->id)
-                    ->with(['department.structureType', 'department.parent', 'position']);
-            }])->get();
+        })->with($withThisAssignment)->get();
 
-        // Javobni qaytarish
+        // Tartib: avval lavozim darajasi (rektor → prorektor → … → oʻqituvchi),
+        // keyin admin panelda berilgan tartib raqami.
+        $people = $people->sortBy(function (Employ $employ) {
+            $meta = $employ->employMeta;
+
+            return sprintf('%04d-%06d', (int) ($meta->position_id ?? 9999), (int) ($meta->order ?? 0));
+        })->values();
+
+        // Rahbar — rahbarlik lavozimidagi birinchi xodim. Rahbarlik
+        // lavozimlari bittasi emas: rektor, prorektor, dekan, boʻlim
+        // boshligʻi, kafedra mudiri.
+        $boss = $people->first(
+            fn (Employ $employ) => in_array((int) ($employ->employMeta->position_id ?? 0), self::LEADERSHIP_POSITIONS, true)
+        );
+
+        // Qolganlar — rahbardan tashqari hamma. Bir boʻlimda bir nechta
+        // boshliq boʻlsa (institut kengashi tarkibi), ular ham shu yerda.
+        $others = $boss ? $people->reject(fn (Employ $employ) => $employ->id === $boss->id)->values() : $people;
+
+        return [
+            'department' => $department->loadMissing('parent')->toPublicArray($locale, $this->main_lang->code ?? 'uz'),
+            'department_boss' => $boss,
+            'simple_employee' => $others,
+        ];
+    }
+
+    /**
+     * Tuzilma birliklari roʻyxati: `?type=2` — boshqarma va boʻlimlar,
+     * 3 — fakultetlar, 4 — kafedralar, 5 — markazlar.
+     */
+    public function units(Request $request)
+    {
+        $locale = app()->getLocale();
+        $fallback = $this->main_lang->code ?? 'uz';
+
+        $types = collect(explode(',', (string) $request->query('type', Department::TYPE_UNIT)))
+            ->map(fn ($type) => (int) $type)
+            ->filter()
+            ->values()
+            ->all();
+
+        $units = Department::query()
+            ->whereIn('structure_type_id', $types)
+            ->where('active', 1)
+            ->withCount(['assignments as staff_count' => fn ($query) => $query->where('active', 1)])
+            ->with('parent')
+            ->orderBy('order')
+            ->orderBy('id')
+            ->get();
+
         return response()->json([
-            'department_boss' => $employeeBoss,
-            'simple_employee' => $simpleEmployees,
+            'data' => $units->map(fn (Department $unit) => array_merge(
+                $unit->toPublicArray($locale, $fallback),
+                ['staff_count' => $unit->staff_count]
+            ))->values(),
         ]);
     }
 
@@ -691,7 +738,7 @@ class LeadershipController extends Controller
     {
         $locale = app()->getLocale(); // Get the current locale
 
-        $faculted = Department::where('structure_type_id',3)->get();
+        $faculted = Department::where('structure_type_id', 3)->where('active', 1)->orderBy('order')->orderBy('id')->get();
         return $faculted;
     }
 
@@ -726,39 +773,9 @@ class LeadershipController extends Controller
 
     public function showfakultet($slug)
     {
-        $locale = app()->getLocale(); // Hozirgi tilni olish
+        $department = Department::where('slug', $slug)->firstOrFail();
 
-        // Fakultet rahbari (Department Boss)ni topish
-        $employeeBoss = Employ::whereHas('employMeta', function ($query) use ($slug) {
-            $query->whereHas('department', function ($subQuery) use ($slug) {
-                $subQuery->where('slug', $slug); // ID o'rniga SLUG orqali qidirish
-            });
-        })->where('leader', 1)->whereHas('employMeta.position', function ($query) {
-            $query->where('active', 1);
-        })->with(['employMeta' => function ($query) use ($slug) {
-            // Xodim bir nechta bo'limda bo'lishi mumkin — shu sahifaga
-            // tegishli tayinlov olinadi, birinchisi emas.
-            $query->whereHas('department', fn ($q) => $q->where('slug', $slug))
-                ->with(['department.structureType', 'department.parent', 'position','employ_type']);
-        }])->first();
-
-        // Oddiy hodimlar (Simple Employees)ni topish
-        $simpleEmployees = Employ::whereHas('employMeta', function ($query) use ($slug) {
-            $query->whereHas('department', function ($subQuery) use ($slug) {
-                $subQuery->where('slug', $slug); // ID o'rniga SLUG orqali qidirish
-            });
-        })->where('leader', '!=', 1)->whereHas('employMeta.position', function ($query) {
-            $query->where('active', 1);
-        })->with(['employMeta' => function ($query) use ($slug) {
-            $query->whereHas('department', fn ($q) => $q->where('slug', $slug))
-                ->with(['department.structureType', 'department.parent', 'position']);
-        }])->get();
-
-        // JSON javob qaytarish
-        return response()->json([
-            'department_boss' => $employeeBoss,
-            'simple_employee' => $simpleEmployees,
-        ]);
+        return response()->json($this->departmentPayload($department));
     }
 
     public function showfakultetuser($slug)
@@ -803,43 +820,15 @@ class LeadershipController extends Controller
     {
         $locale = app()->getLocale(); // Get the current locale
 
-        $faculted = Department::where('structure_type_id',4)->get();
+        $faculted = Department::where('structure_type_id', 4)->where('active', 1)->orderBy('order')->orderBy('id')->get();
         return $faculted;
     }
 
     public function showKafedralar($slug)
     {
-        $locale = app()->getLocale(); // Get the current locale
+        $department = Department::where('slug', $slug)->firstOrFail();
 
-        $employeeBoss = Employ::whereHas('employMeta', function ($query) use ($slug) {
-            $query->whereHas('department', function ($subQuery) use ($slug) {
-                $subQuery->where('slug', $slug);
-            });
-        })->where('leader', 1)->whereHas('employMeta.position', function ($query) {
-            $query->where('active', 1);
-        })->with(['employMeta' => function ($query) use ($slug) {
-            // Xodim bir nechta bo'limda bo'lishi mumkin — shu sahifaga
-            // tegishli tayinlov olinadi, birinchisi emas.
-            $query->whereHas('department', fn ($q) => $q->where('slug', $slug))
-                ->with(['department.structureType', 'department.parent', 'position','employ_type']);
-        }])->first();
-
-        $simpleEmployees = Employ::whereHas('employMeta', function ($query) use ($slug) {
-            $query->whereHas('department', function ($subQuery) use ($slug) {
-                $subQuery->where('slug', $slug);
-            });
-        })->where('leader', '!=', 1)->whereHas('employMeta.position', function ($query) {
-            $query->where('active', 1);
-        })->with(['employMeta' => function ($query) {
-            $query->with(['department.structureType', 'department.parent', 'position','employ_type']);
-        }])->get();
-
-        $employees = [
-            'department_boss' => $employeeBoss,
-            'simple_employee' => $simpleEmployees,
-        ];
-
-        return response()->json($employees);
+        return response()->json($this->departmentPayload($department));
     }
     public function showkafedralaruser($slug)
     {
