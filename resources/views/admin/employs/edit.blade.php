@@ -128,7 +128,7 @@
         @csrf
         @method('put')
         <div class="row">
-            <div class="col-8">
+            <div class="col-12 col-xl-8">
                 <div class="card mw-50">
                     <div class="card-body">
                             <div class="row">
@@ -227,7 +227,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-4">
+            <div class="col-12 col-xl-4">
                 @include('admin.employs._assignments')
 
                 <div class="card mw-50">
@@ -244,8 +244,9 @@
                                     <input type="date" id="date" name="start_time" class="form-control" value="{{ old('start_time') ?? $employ->start_time }}" placeholder="{{ date('d-m-Y') }}"  />
                                 </div>
                                 <div class="form-group">
-                                    <label for="date" class="form-label">Manzil</label>
-                                    <input type="text" id="date" name="slug" class="form-control" value="{{ old('slug') ?? $employ->slug }}" />
+                                    <label for="slug" class="form-label">Sahifa manzili (URL)</label>
+                                    <input type="text" id="slug" name="slug" class="form-control" value="{{ old('slug') ?? $employ->slug }}" />
+                                    <div class="form-text">Saytdagi manzil: /leadership/<strong>{{ $employ->slug }}</strong>. Odatda oʻzgartirish shart emas.</div>
                                 </div>
                                 {{--
                                     Ilgari "Holati" `status` oʻrniga `gender` ni oʻqirdi, "Jinsi" esa

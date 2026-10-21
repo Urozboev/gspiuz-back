@@ -94,7 +94,7 @@
 <div class="container-fluid">
     <form method="post" action="{{ route($route_name . '.store') }}" enctype="multipart/form-data" id="add">
         <div class="row">
-            <div class="col-8">
+            <div class="col-12 col-xl-8">
                 <div class="card mw-50">
                     <div class="card-body">
                             <div class="row">
@@ -194,7 +194,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-4">
+            <div class="col-12 col-xl-4">
                 @include('admin.employs._assignments')
 
                 <div class="card mw-50">

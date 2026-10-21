@@ -109,10 +109,11 @@ class GspiImport extends Command
         return true;
     }
 
-    /** HTML entity'larni ochadi va boʻsh joylarni tozalaydi. */
+    /** Teglarni olib tashlaydi, entity'larni ochadi, boʻsh joylarni tozalaydi. */
     private function clean(?string $value): string
     {
-        $value = html_entity_decode((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = html_entity_decode(strip_tags((string) $value), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = str_replace("\u{00A0}", ' ', $value);
 
         return trim(preg_replace('~\s+~u', ' ', $value) ?? '');
     }
@@ -315,7 +316,7 @@ class GspiImport extends Command
                 'last_name' => $this->everyLang($parts[0] ?? ''),
                 'first_name' => $this->everyLang($parts[1] ?? ''),
                 'surname' => $this->everyLang($parts[2] ?? ''),
-                'position' => $this->trio($row, 'title', true),
+                'position' => $this->trio($row, 'title'), // bir qatorli yorliq — teglarsiz
                 'work_time' => $this->trio($row, 'soha'),
                 'dec' => $this->trio($row, 'body', true),
                 'email' => $this->clean($row->email) ?: null,

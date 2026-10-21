@@ -53,9 +53,9 @@ return [
         'note' => 'Hujjatlarni turkumlarga ajratish uchun.',
     ],
     'employs' => [
-        'page' => 'Rahbariyat, tyutorlar va kafedra xodimlari',
+        'page' => 'Rahbariyat, boʻlim, fakultet va kafedra sahifalari',
         'path' => '/leadership',
-        'note' => 'Bitta xodim bir nechta sahifada koʻrinishi mumkin — bu uning lavozimiga bogʻliq.',
+        'note' => 'Xodim qaysi sahifada chiqishini "Ish joylari" belgilaydi. Bir nechta boʻlimda ishlasa — har biri uchun qator qoʻshing, xodimni qayta yaratmang.',
     ],
     'employ_meta' => [
         'page' => 'Xodimlar sahifalari',
@@ -63,8 +63,9 @@ return [
         'note' => 'Xodimni boʻlim va lavozim bilan bogʻlaydi. Aynan shu bogʻlanish xodim qaysi sahifada chiqishini belgilaydi. Bir xodim bir nechta boʻlimda boʻlishi mumkin — har bir boʻlim uchun alohida yozuv qoʻshing, u ikkala sahifada ham oʻz lavozimi bilan koʻrinadi.',
     ],
     'departaments' => [
-        'page' => 'Fakultetlar va kafedralar',
-        'path' => '/faculties',
+        'page' => 'Boshqarma va boʻlimlar, Fakultetlar, Kafedralar',
+        'path' => '/departments',
+        'note' => 'Turi qaysi roʻyxatda chiqishini belgilaydi. Boʻlimni ochib, uning haqida maʼlumot yozing va xodimlarini qoʻshing.',
     ],
     'positions' => [
         'page' => 'Xodimlar sahifalari',

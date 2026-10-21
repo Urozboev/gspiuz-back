@@ -218,6 +218,45 @@ class UnchangedSaveRoundTripTest extends TestCase
         $this->assertEquals($before, $after, 'Boʻlim oʻzgarishsiz saqlanganda saytdagi koʻrinishi oʻzgardi');
     }
 
+    /**
+     * "Boʻlim haqida" formatlangan matni (qalin, roʻyxat) saqlanganda
+     * yoʻqolmasligi kerak.
+     *
+     * Xato: forma matnni `<textarea>` ichiga xom HTML qilib qoʻyardi.
+     * Brauzer uni matn deb oʻqiydi, lekin `</textarea>` uchrasa forma
+     * buziladi, ayrim hollarda esa teglar tushib qoladi. Toʻgʻrisi —
+     * qochirilgan (`&lt;p&gt;`) koʻrinish, CKEditor uni qayta ochadi.
+     */
+    public function test_rich_department_description_survives_an_unchanged_save(): void
+    {
+        $department = DB::table('departments')->whereNull('deleted_at')->orderBy('id')->first();
+
+        $this->remember('departments', $department->id);
+
+        $html = '<p><strong>Qalin</strong> va <em>qiya</em>.</p><ul><li>Birinchi</li><li>Ikkinchi</li></ul><p>&lt;/textarea&gt; ham buzmasin</p>';
+
+        DB::table('departments')->where('id', $department->id)->update([
+            'description' => json_encode(['uz' => $html, 'ru' => $html, 'en' => $html], JSON_UNESCAPED_UNICODE),
+        ]);
+
+        $action = route('departaments.update', $department->id);
+        $page = $this->actingAs($this->admin())->get(route('departaments.edit', $department->id))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('<textarea class="form-control ckeditor" name="description[uz]" rows="8"><p>', $page,
+            'Matn textarea ichiga xom HTML boʻlib tushgan');
+
+        $data = $this->formFields($page, $action);
+        unset($data['_method']);
+
+        $this->assertSame($html, $data['description']['uz'] ?? null, 'Brauzer formadan boshqa matn oʻqiydi');
+
+        $this->actingAs($this->admin())->put($action, $data)->assertRedirect()->assertSessionHasNoErrors();
+
+        $saved = json_decode((string) DB::table('departments')->where('id', $department->id)->value('description'), true);
+
+        $this->assertSame($html, $saved['uz']);
+    }
+
     public function test_saving_an_employee_unchanged_keeps_the_site_unchanged(): void
     {
         $meta = DB::table('employ_metas')

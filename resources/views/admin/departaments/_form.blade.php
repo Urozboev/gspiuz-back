@@ -43,7 +43,7 @@
                     Ixtiyoriy. Tarixi, vazifalari, yutuqlari — yangilik yozgandek erkin.
                     Word'dan nusxa olib qoʻyish, rasm va jadval qoʻshish mumkin.
                 </div>
-                <textarea class="form-control ckeditor" name="description[{{ $lang->code }}]" rows="8">{!! $value('description', $lang->code) !!}</textarea>
+                <textarea class="form-control ckeditor" name="description[{{ $lang->code }}]" rows="8">{{ $value('description', $lang->code) }}</textarea>
             </div>
 
             <div class="row">

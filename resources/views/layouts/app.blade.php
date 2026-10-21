@@ -381,7 +381,7 @@
                                     </li>
                                     <li class="nav-item">
                                         <a class="nav-link {{ request()->is('admin/departaments') || request()->is('admin/departaments/*') ? 'active' : '' }}" href="{{ route('departaments.index') }}">
-                                            Fakultet va kafedralar
+                                            Boʻlimlar va kafedralar
                                         </a>
                                     </li>
                                     <li class="nav-item">

@@ -67,7 +67,7 @@
                     @else
                         <ul class="list-group list-group-flush">
                             @foreach($staff as $meta)
-                                <li class="list-group-item d-flex align-items-center gap-3">
+                                <li class="list-group-item d-flex align-items-center gap-3 px-4">
                                     <div class="flex-grow-1">
                                         <a href="{{ route('employs.edit', $meta->employ_id) }}" class="fw-semibold">
                                             {{ $meta->employ->displayName($main_lang->code) }}
